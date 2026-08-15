@@ -20,21 +20,26 @@ $resident = $profile_result->fetch_assoc();
 $resident_profile_id = $resident['id'] ?? 0;
 
 // ================= ACTION: PROCESS NEW DOCUMENT REQUEST SUBMISSION =================
-if (isset($_POST['submit_request_btn'])) {
-    $base_type = $_POST['request_type'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_request_btn'])) {
+    $base_type = $_POST['request_type'] ?? '';
     
-    // If the resident chose "Other", override the value with their custom typed category string
+    // Capture custom category if "Other" is selected
     if ($base_type === 'Other' && !empty($_POST['custom_request_type'])) {
-        $request_type = $conn->real_escape_string($_POST['custom_request_type']);
+        $request_type = $conn->real_escape_string(trim($_POST['custom_request_type']));
     } else {
-        $request_type = $conn->real_escape_string($base_type);
+        $request_type = $conn->real_escape_string(trim($base_type));
+    }
+    
+    // Fallback if empty
+    if (empty($request_type)) {
+        $request_type = 'General Request';
     }
     
     $description = $conn->real_escape_string($_POST['description']);
 
     if ($resident_profile_id > 0) {
         $sql = "INSERT INTO requests (requester_name, requester_type, request_details, status) 
-                VALUES ($resident_profile_id, '$request_type', '$description', 'pending')";
+                VALUES ('$resident_profile_id', '$request_type', '$description', 'pending')";
                 
         if ($conn->query($sql)) {
             $success_msg = "Your application form has been submitted! Awaiting administrator review.";
@@ -59,7 +64,7 @@ $history_result = $conn->query($history_query);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ResiCured - Document Requests</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/theme/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
     <style>
@@ -109,7 +114,7 @@ $history_result = $conn->query($history_query);
         .custom-table th { background-color: #f8fafc; color: #718096; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e2e8f0; padding: 12px 16px; }
         .custom-table td { color: var(--text-dark); font-size: 14px; padding: 16px; vertical-align: middle; border-bottom: 1px solid #edf2f7; }
 
-        /* ================= POP-UP WINDOW SYSTEM OVERLAYS ================= */
+        /* Pop-up Overlay */
         .custom-modal-backdrop { 
             position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; 
             background-color: rgba(30, 34, 41, 0.6) !important; z-index: 99999 !important; 
@@ -131,7 +136,6 @@ $history_result = $conn->query($history_query);
 <body>
 
 <div class="page-wrapper">
-    
     <div class="sidebar">
         <div>
             <div class="brand-logo-area border-bottom">
@@ -169,7 +173,6 @@ $history_result = $conn->query($history_query);
         <?php endif; ?>
 
         <div class="split-grid">
-            
             <div class="panel-card text-center py-4">
                 <h5 class="panel-card-title text-start"><i class="fa-solid fa-file-circle-plus me-1.5 text-orange"></i>Actions</h5>
                 <p class="text-muted small text-start mb-4">File formal requests for neighborhood clearances, document copies, or facilities keys.</p>
@@ -192,7 +195,11 @@ $history_result = $conn->query($history_query);
                             <?php if ($history_result && $history_result->num_rows > 0): ?>
                                 <?php while($row = $history_result->fetch_assoc()): ?>
                                     <tr>
-                                        <td><span class="badge bg-light text-dark border px-2.5 py-1.5 fw-bold" style="text-transform: uppercase; font-size:11px;"><?php echo htmlspecialchars($row['requester_type']); ?></span></td>
+                                        <td>
+                                            <span class="badge bg-light text-dark border px-2.5 py-1.5 fw-bold" style="text-transform: uppercase; font-size:11px;">
+                                                <?php echo !empty(trim($row['requester_type'])) ? htmlspecialchars($row['requester_type']) : 'General Request'; ?>
+                                            </span>
+                                        </td>
                                         <td style="max-width: 320px; white-space: normal;"><span class="text-secondary small"><?php echo htmlspecialchars($row['request_details']); ?></span></td>
                                         <td class="text-muted small"><?php echo date('M d, Y, g:i A', strtotime($row['created_at'])); ?></td>
                                         <td class="text-end" style="padding-right:20px;">
@@ -213,7 +220,6 @@ $history_result = $conn->query($history_query);
                     </table>
                 </div>
             </div>
-
         </div>
     </div>
 </div>
@@ -226,7 +232,6 @@ $history_result = $conn->query($history_query);
         </div>
         <form action="requests.php" method="POST">
             <div class="popup-body">
-                
                 <div class="mb-3">
                     <label class="form-label">Request Type</label>
                     <select name="request_type" id="requestTypeSelect" class="form-select p-2.5" required>
@@ -241,14 +246,13 @@ $history_result = $conn->query($history_query);
                 
                 <div class="mb-3" id="customTypeFieldBlock" style="display: none;">
                     <label class="form-label text-danger"><i class="fa fa-pen-clip me-1"></i>Specify Custom Request Type</label>
-                    <input type="text" name="custom_request_type" id="customTypeInput" class="form-control p-2.5" placeholder="e.g., Car Sticker Permit Application">
+                    <input type="text" name="custom_request_type" id="customTypeInput" class="form-control p-2.5" placeholder="e.g., Water Leaking Repair">
                 </div>
 
                 <div class="mb-2">
                     <label class="form-label">Purpose / Additional Details</label>
                     <textarea name="description" rows="4" class="form-control p-2.5" required placeholder="Provide narrative explanation purpose..."></textarea>
                 </div>
-                
             </div>
             <div class="popup-footer">
                 <a href="#" class="btn-modal-cancel">Cancel</a>
@@ -268,12 +272,10 @@ document.addEventListener("DOMContentLoaded", function() {
 
     selectElement.addEventListener('change', function() {
         if (this.value === 'Other') {
-            // Uncollapse the text block smoothly and make input required
             customFieldBlock.style.display = 'block';
             customInput.required = true;
             customInput.focus();
         } else {
-            // Collapse block away and clear requirements / text strings values
             customFieldBlock.style.display = 'none';
             customInput.required = false;
             customInput.value = '';

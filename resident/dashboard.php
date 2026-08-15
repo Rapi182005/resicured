@@ -67,6 +67,9 @@ $visitors_result = $conn->query("SELECT id, visitor_name, qr_code_token, visit_d
 
 // 4. FETCH THE RESIDENT'S UNPAID MONTHLY BILLS
 $billing_result = $conn->query("SELECT amount, billing_month, due_date FROM billings WHERE resident_id = '$resident_profile_id' AND status = 'unpaid' ORDER BY due_date ASC");
+
+// 5. FETCH UPCOMING COMMUNITY EVENTS PUBLISHED BY ADMIN
+$events_result = $conn->query("SELECT title, description, event_date, location FROM events WHERE event_date >= NOW() ORDER BY event_date ASC LIMIT 5");
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -148,7 +151,8 @@ $billing_result = $conn->query("SELECT amount, billing_month, due_date FROM bill
             </div>
         <?php endif; ?>
 
-        <div class="workspace-grid">
+        <!-- Upper Workspace Grid -->
+        <div class="workspace-grid mb-4">
             <div class="content-card">
                 <h5 class="content-card-title"><i class="fa fa-history me-2" style="color: var(--subdivision-orange);"></i> My Authorized Visitor Passes</h5>
                 <div class="table-responsive">
@@ -212,9 +216,57 @@ $billing_result = $conn->query("SELECT amount, billing_month, due_date FROM bill
                 </div>
             </div>
         </div> 
+
+        <!-- Upcoming Subdivision Events Section -->
+        <div class="content-card">
+            <h5 class="content-card-title"><i class="fa fa-calendar-days me-2" style="color: var(--subdivision-orange);"></i> Upcoming Subdivision Events</h5>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" style="font-size:14px;">
+                    <thead class="table-light" style="font-size:11px; text-transform:uppercase; color:#718096;">
+                        <tr>
+                            <th>Event Details</th>
+                            <th>Date & Time</th>
+                            <th>Location</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if ($events_result && $events_result->num_rows > 0): ?>
+                            <?php while($event = $events_result->fetch_assoc()): ?>
+                                <tr>
+                                    <td>
+                                        <strong><?php echo htmlspecialchars($event['title']); ?></strong>
+                                        <?php if(!empty($event['description'])): ?>
+                                            <div class="text-muted small mt-1"><?php echo htmlspecialchars($event['description']); ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="font-monospace small">
+                                        <i class="fa-regular fa-clock text-warning me-1"></i>
+                                        <?php echo date('M d, Y — g:i A', strtotime($event['event_date'])); ?>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border px-2 py-1">
+                                            <i class="fa-solid fa-location-dot text-danger me-1"></i><?php echo htmlspecialchars($event['location']); ?>
+                                        </span>
+                                    </td>
+                                </tr>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="3" class="text-center text-muted py-4">
+                                    <i class="fa-regular fa-calendar-xmark text-secondary d-block fs-4 mb-2"></i>
+                                    No upcoming community events scheduled at the moment.
+                                </td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
     </div> 
 </div> 
 
+<!-- Modals -->
 <div id="requestPassModal" class="custom-modal-backdrop">
     <div class="custom-popup-window">
         <div class="popup-header">

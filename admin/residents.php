@@ -227,26 +227,45 @@ if (isset($_POST['delete_resident_btn'])) {
 }
 
 $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
+
+// Fetch Metrics for KPI Stat Bar
+$total_residents = $conn->query("SELECT COUNT(*) as cnt FROM residents")->fetch_assoc()['cnt'] ?? 0;
+$total_vehicles = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE registered_vehicle_plate IS NOT NULL AND registered_vehicle_plate != ''")->fetch_assoc()['cnt'] ?? 0;
+$total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_template_path IS NOT NULL AND face_template_path != ''")->fetch_assoc()['cnt'] ?? 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ResiCured - Residents Directory</title>
+    <title>ResiCured - Residents Management Directory</title>
+    <!-- Modern Typography: Plus Jakarta Sans -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
     <style>
         :root {
-            --subdivision-orange: #e66a00;
-            --subdivision-amber: #ffaa00;
-            --text-dark: #2d3748;
-            --bg-light: #f8fafc;
+            --primary-orange: #ea580c;
+            --primary-orange-hover: #c2410c;
+            --primary-orange-soft: #fff7ed;
+            --primary-orange-border: #ffedd5;
+            --bg-main: #f8fafc;
+            --sidebar-bg: #ffffff;
+            --text-heading: #0f172a;
+            --text-body: #334155;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --radius-lg: 14px;
+            --radius-md: 10px;
+            --radius-sm: 6px;
         }
 
         body {
-            background-color: var(--bg-light);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-body);
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
         }
 
         .page-wrapper {
@@ -255,68 +274,166 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
             width: 100%;
         }
 
+        /* SIDEBAR STYLING */
         .sidebar {
             width: 260px;
-            background-color: #ffffff;
-            border-right: 1px solid #e2e8f0;
-            padding-top: 24px;
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            padding: 24px 16px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-        }
-
-        .main-content {
-            flex-grow: 1;
-            padding: 40px;
-            background-color: var(--bg-light);
+            position: sticky;
+            top: 0;
+            height: 100vh;
         }
 
         .brand-logo-area {
-            padding: 0 24px 20px 24px;
+            padding: 0 12px 20px 12px;
             display: flex;
             align-items: center;
             gap: 12px;
+            border-bottom: 1px solid #f1f5f9;
         }
 
-        .brand-logo-icon { color: var(--subdivision-orange); font-size: 1.6rem; }
-        .brand-logo-text { color: var(--text-dark); font-size: 20px; font-weight: 700; letter-spacing: -0.5px; margin: 0; }
-        .sidebar-menu { list-style: none; padding: 0; margin: 0; }
-
-        .sidebar .nav-link {
-            color: #4a5568;
-            font-size: 14px;
-            font-weight: 500;
-            padding: 12px 20px;
-            margin: 4px 16px;
-            border-radius: 8px;
+        .brand-icon-box {
+            width: 38px;
+            height: 38px;
+            background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+            color: white;
+            border-radius: var(--radius-md);
             display: flex;
             align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25);
+        }
+
+        .brand-logo-text {
+            color: var(--text-heading);
+            font-size: 19px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin: 0;
+        }
+
+        .sidebar-menu { list-style: none; padding: 0; margin: 16px 0 0 0; }
+
+        .sidebar .nav-link {
+            color: #475569;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 10px 14px;
+            margin: 4px 0;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            gap: 12px;
             text-decoration: none;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
         }
 
         .sidebar .nav-link:hover {
-            color: var(--subdivision-orange);
-            background-color: rgba(230, 106, 0, 0.05);
+            color: var(--primary-orange);
+            background-color: var(--primary-orange-soft);
         }
 
         .sidebar .nav-link.active {
-            color: #ffffff;
-            background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%);
-            font-weight: 600;
+            color: var(--primary-orange);
+            background-color: var(--primary-orange-soft);
+            border: 1px solid var(--primary-orange-border);
         }
 
-        .sidebar .nav-link i { font-size: 16px; width: 28px; }
-        .logout-btn-container { padding-bottom: 24px; }
-        .logout-btn { background-color: #fff5f5; color: #c53030; border: 1px solid #fed7d7; }
-        .logout-btn:hover { background-color: #e53e3e; color: #ffffff; }
-        .dashboard-title { color: var(--text-dark); font-weight: 700; margin: 0 0 4px 0; }
-        
-        /* MODERN CLEAN TABLE STYLING */
+        .sidebar .nav-link i { font-size: 16px; width: 20px; text-align: center; }
+
+        .logout-btn { 
+            background-color: #fef2f2; 
+            color: #dc2626; 
+            border: 1px solid #fee2e2; 
+        }
+        .logout-btn:hover { background-color: #dc2626; color: #ffffff; }
+
+        /* MAIN CONTENT AREA */
+        .main-content {
+            flex-grow: 1;
+            padding: 32px 40px;
+            background-color: var(--bg-main);
+            max-width: calc(100vw - 260px);
+        }
+
+        .dashboard-title { 
+            color: var(--text-heading); 
+            font-weight: 800; 
+            font-size: 24px;
+            letter-spacing: -0.5px;
+            margin: 0; 
+        }
+
+        /* STAT CARDS */
+        .stat-card {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 18px 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .stat-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        /* SEARCH & FILTER TOOLBAR */
+        .toolbar-card {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 16px 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            margin-bottom: 20px;
+        }
+
+        .search-box {
+            position: relative;
+            max-width: 380px;
+            width: 100%;
+        }
+
+        .search-box i {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .search-box input {
+            padding-left: 38px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .search-box input:focus {
+            border-color: var(--primary-orange);
+            box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+        }
+
+        /* MODERN TABLE CARD */
         .table-card { 
             background: #ffffff; 
-            border: 1px solid #e2e8f0; 
-            border-radius: 12px; 
+            border: 1px solid var(--border-color); 
+            border-radius: var(--radius-lg); 
             overflow: hidden; 
             box-shadow: 0 1px 3px rgba(0,0,0,0.02);
         }
@@ -329,39 +446,32 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
 
         .modern-table thead th {
             background-color: #f8fafc;
-            color: #64748b;
+            color: var(--text-muted);
             font-size: 11px;
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.6px;
+            letter-spacing: 0.8px;
             padding: 14px 20px;
-            border-bottom: 1px solid #e2e8f0;
+            border-bottom: 1px solid var(--border-color);
             white-space: nowrap;
         }
 
         .modern-table tbody td {
-            padding: 16px 20px;
+            padding: 14px 20px;
             vertical-align: middle;
             border-bottom: 1px solid #f1f5f9;
-            color: #334155;
+            color: var(--text-body);
             font-size: 13.5px;
         }
 
-        .modern-table tbody tr:last-child td {
-            border-bottom: none;
-        }
+        .modern-table tbody tr:last-child td { border-bottom: none; }
 
-        .modern-table tbody tr {
-            transition: background-color 0.15s ease;
-        }
-
-        .modern-table tbody tr:hover {
-            background-color: #fafbfd;
-        }
+        .modern-table tbody tr { transition: background-color 0.15s ease; }
+        .modern-table tbody tr:hover { background-color: #f8fafc; }
 
         .avatar-thumbnail { 
-            width: 44px; 
-            height: 44px; 
+            width: 42px; 
+            height: 42px; 
             border-radius: 50%; 
             object-fit: cover; 
             border: 2px solid #ffffff; 
@@ -371,23 +481,25 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
 
         .house-badge {
             background-color: #f1f5f9;
-            color: #475569;
+            color: #334155;
             font-weight: 600;
-            padding: 4px 10px;
-            border-radius: 6px;
+            padding: 5px 10px;
+            border-radius: var(--radius-sm);
             font-size: 12px;
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
             border: 1px solid #e2e8f0;
         }
 
         .plate-badge {
             background-color: #0f172a;
-            color: #f59e0b;
-            font-family: monospace;
+            color: #fbbf24;
+            font-family: 'Courier New', monospace;
             font-weight: 700;
             font-size: 11px;
             padding: 4px 10px;
-            border-radius: 6px;
+            border-radius: var(--radius-sm);
             letter-spacing: 0.5px;
             display: inline-flex;
             align-items: center;
@@ -395,13 +507,9 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
         }
 
         .username-tag {
-            font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            color: #64748b;
-            background-color: #f8fafc;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            border: 1px solid #f1f5f9;
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 13px;
         }
 
         .btn-action-edit {
@@ -410,8 +518,8 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
             border: 1px solid #fde68a;
             font-weight: 600;
             font-size: 12px;
-            padding: 6px 14px;
-            border-radius: 6px;
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
             transition: all 0.15s ease;
         }
 
@@ -426,8 +534,8 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
             border: 1px solid #fecaca;
             font-weight: 600;
             font-size: 12px;
-            padding: 6px 14px;
-            border-radius: 6px;
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
             transition: all 0.15s ease;
         }
 
@@ -438,41 +546,57 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
         
         .admin-cam-box { 
             background: #0f172a; 
-            border-radius: 10px; 
+            border-radius: var(--radius-md); 
             overflow: hidden; 
             width: 100%; 
-            height: 240px; 
+            height: 220px; 
             position: relative; 
             border: 2px dashed #64748b; 
         }
         #adminWebcam, #editAdminWebcam { width: 100%; height: 100%; object-fit: cover; display: none; }
 
         .current-face-preview {
-            width: 120px;
-            height: 120px;
-            border-radius: 12px;
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
             object-fit: cover;
             border: 3px solid #e2e8f0;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
         }
 
         .photo-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
-        .grid-snap-box { width: 100%; height: 70px; background: #e2e8f0; border-radius: 6px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; border: 2px dashed #cbd5e1; }
+        .grid-snap-box { width: 100%; height: 64px; background: #f1f5f9; border-radius: 6px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; border: 2px dashed #cbd5e1; }
         .grid-snap-box img { width: 100%; height: 100%; object-fit: cover; }
-        .grid-snap-label { position: absolute; bottom: 2px; font-size: 9px; background: rgba(0,0,0,0.6); color: #fff; padding: 1px 4px; border-radius: 3px; z-index: 2; }
+        .grid-snap-label { position: absolute; bottom: 2px; font-size: 8.5px; font-weight: 700; background: rgba(15,23,42,0.75); color: #fff; padding: 1px 4px; border-radius: 3px; z-index: 2; }
+        
+        .form-control {
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            padding: 9px 13px;
+            font-size: 13.5px;
+        }
+        .form-control:focus {
+            border-color: var(--primary-orange);
+            box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+        }
     </style>
 </head>
 <body>
 
 <div class="page-wrapper">
+    <!-- SIDEBAR -->
     <div class="sidebar">
         <div>
-            <div class="brand-logo-area border-bottom">
-                <i class="fa fa-shield-halved brand-logo-icon"></i>
+            <div class="brand-logo-area">
+                <div class="brand-icon-box">
+                    <i class="fa fa-shield-halved"></i>
+                </div>
                 <h4 class="brand-logo-text">ResiCured</h4>
             </div>
-            <ul class="sidebar-menu mt-3">
+             <ul class="sidebar-menu mt-3">
                 <li><a href="dashboard.php" class="nav-link"><i class="fa fa-chart-pie"></i> Dashboard</a></li>
-                <li><a href="residents.php" class="nav-link active"><i class="fa fa-users"></i> Residents</a></li>
+                <li><a href="events.php" class="nav-link"><i class="fa fa-calendar-alt"></i> Events</a></li>
+                <li><a href="residents.php" class="nav-link"><i class="fa fa-users"></i> Residents</a></li>
                 <li><a href="face_registration.php" class="nav-link"><i class="fa fa-user-shield"></i> Personnel</a></li>
                 <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests</a></li>
                 <li><a href="billing.php" class="nav-link"><i class="fa fa-credit-card"></i> Billing</a></li>
@@ -480,34 +604,81 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
                 <li><a href="guards.php" class="nav-link"><i class="fa fa-user-lock"></i> Staff Guards</a></li>
             </ul>
         </div>
-        <div class="logout-btn-container">
-            <hr class="mx-3 text-muted">
+        <div>
             <a href="../logout.php" class="nav-link logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
         </div>
     </div>
 
+    <!-- MAIN CONTAINER -->
     <div class="main-content">
-        <div class="d-flex justify-content-between align-items-center pb-3 mb-4 border-bottom">
+        <!-- HEADER TITLE -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
-                <h1 class="h3 dashboard-title">Residents Management Directory</h1>
-                <p class="text-muted small mb-0">Manage community profiles, database authorization links, and biometric credentials.</p>
+                <h1 class="dashboard-title">Residents Management</h1>
+                <p class="text-muted small mb-0 mt-1">Manage subdivision profiles, authorization credentials, and biometric mappings.</p>
             </div>
-            <button class="btn text-white fw-bold px-4 py-2" style="background-color: var(--subdivision-orange); border-radius: 8px; font-size: 14px;" data-bs-toggle="modal" data-bs-target="#addResidentModal">
+            <button class="btn text-white fw-bold px-4 py-2" style="background-color: var(--primary-orange); border-radius: var(--radius-md); font-size: 14px;" data-bs-toggle="modal" data-bs-target="#addResidentModal">
                 <i class="fa fa-plus me-2"></i>Add Resident
             </button>
         </div>
 
+        <!-- KPI SUMMARY CARDS -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background-color: #eff6ff; color: #2563eb;">
+                        <i class="fa-solid fa-users"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">Total Residents</div>
+                        <div class="fs-4 fw-bold text-dark"><?php echo $total_residents; ?></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background-color: #fef3c7; color: #d97706;">
+                        <i class="fa-solid fa-car"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">Registered Vehicles</div>
+                        <div class="fs-4 fw-bold text-dark"><?php echo $total_vehicles; ?></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background-color: #f0fdf4; color: #16a34a;">
+                        <i class="fa-solid fa-face-smile"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">Biometric Profiles</div>
+                        <div class="fs-4 fw-bold text-dark"><?php echo $total_faces; ?> / <?php echo $total_residents; ?></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <?php if(!empty($success_msg)): ?>
-            <div class="alert alert-success border-0 shadow-sm mb-3 small"><?php echo $success_msg; ?></div>
+            <div class="alert alert-success border-0 shadow-sm mb-3 small fw-medium" style="border-radius: var(--radius-md);"><i class="fa-solid fa-circle-check me-2"></i><?php echo $success_msg; ?></div>
         <?php endif; ?>
         <?php if(!empty($error_msg)): ?>
-            <div class="alert alert-danger border-0 shadow-sm mb-3 small"><?php echo $error_msg; ?></div>
+            <div class="alert alert-danger border-0 shadow-sm mb-3 small fw-medium" style="border-radius: var(--radius-md);"><i class="fa-solid fa-circle-exclamation me-2"></i><?php echo $error_msg; ?></div>
         <?php endif; ?>
+
+        <!-- TOOLBAR WITH INSTANT LIVE SEARCH -->
+        <div class="toolbar-card d-flex justify-content-between align-items-center">
+            <div class="search-box">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="residentSearchInput" class="form-control" placeholder="Search by name, house no, plate or email...">
+            </div>
+            <span class="text-muted small fw-semibold">Directory Records: <span class="text-dark fw-bold" id="visibleCount"><?php echo $total_residents; ?></span></span>
+        </div>
 
         <!-- CLEAN REDESIGNED TABLE CARD -->
         <div class="table-card">
             <div class="table-responsive">
-                <table class="table modern-table align-middle">
+                <table class="table modern-table align-middle" id="residentsTable">
                     <thead>
                         <tr>
                             <th>Resident Profile</th>
@@ -527,7 +698,7 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
                                 $file_path = !empty($row['face_template_path']) ? htmlspecialchars($row['face_template_path']) : '';
                                 $is_video = preg_match('/\.(webm|mp4)$/i', $file_path);
                             ?>
-                                <tr>
+                                <tr class="resident-row">
                                     <td>
                                         <div class="d-flex align-items-center gap-3">
                                             <?php if ($is_video): ?>
@@ -536,20 +707,20 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
                                                 <img src="../<?php echo !empty($file_path) ? $file_path : 'assets/images/default-avatar.png'; ?>" class="avatar-thumbnail" alt="Face Portrait">
                                             <?php endif; ?>
                                             <div>
-                                                <div class="fw-bold text-dark"><?php echo htmlspecialchars($row['full_name']); ?></div>
-                                                <div class="text-muted small" style="font-size: 12px;"><?php echo htmlspecialchars($u_data['email']); ?></div>
+                                                <div class="fw-bold text-dark search-target-name"><?php echo htmlspecialchars($row['full_name']); ?></div>
+                                                <div class="text-muted small search-target-email"><?php echo htmlspecialchars($u_data['email']); ?></div>
                                             </div>
                                         </div>
                                     </td>
                                     <td>
-                                        <span class="house-badge"><i class="fa-solid fa-house-user me-1 text-secondary opacity-75"></i><?php echo htmlspecialchars($row['house_number']); ?></span>
+                                        <span class="house-badge search-target-house"><i class="fa-solid fa-house-user opacity-75"></i><?php echo htmlspecialchars($row['house_number']); ?></span>
                                     </td>
                                     <td>
                                         <span class="text-secondary fw-medium"><i class="fa-solid fa-phone me-1 text-muted small opacity-75"></i><?php echo htmlspecialchars($row['contact_number']); ?></span>
                                     </td>
                                     <td>
                                         <?php if(!empty($row['registered_vehicle_plate'])): ?>
-                                            <span class="plate-badge"><i class="fa fa-car"></i><?php echo htmlspecialchars($row['registered_vehicle_plate']); ?></span>
+                                            <span class="plate-badge search-target-plate"><i class="fa fa-car"></i><?php echo htmlspecialchars($row['registered_vehicle_plate']); ?></span>
                                         <?php else: ?>
                                             <span class="text-muted small fst-italic">No Vehicle</span>
                                         <?php endif; ?>
@@ -580,7 +751,7 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
                                 </tr>
                             <?php endwhile; ?>
                         <?php else: ?>
-                            <tr>
+                            <tr id="noResultsRow">
                                 <td colspan="6" class="text-center text-muted py-5">
                                     <i class="fa-solid fa-users-slash fs-3 d-block mb-2 opacity-50"></i>
                                     No community residents registered yet.
@@ -594,12 +765,13 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
     </div>
 </div>
 
+<!-- MODAL: ADD RESIDENT -->
 <div class="modal fade" id="addResidentModal" data-bs-backdrop="static" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content border-0 shadow-lg" style="border-radius:12px;">
-            <div class="modal-header bg-dark text-white py-3">
-                <h5 class="modal-title fw-bold" style="font-size: 16px;"><i class="fa fa-user-plus me-2 text-warning"></i>Provision Resident Profile</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" onclick="stopAdminCam()"></button>
+        <div class="modal-content border-0">
+            <div class="modal-header border-bottom py-3">
+                <h5 class="modal-title fw-bold text-dark fs-6"><i class="fa fa-user-plus me-2 text-warning"></i>Provision Resident Profile</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="stopAdminCam()"></button>
             </div>
             <form action="residents.php" method="POST" id="addResidentForm">
                 <div class="modal-body p-4 bg-white">
@@ -649,21 +821,21 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
 
                             <div class="admin-cam-box mb-3 mx-auto">
                                 <video id="adminWebcam" autoplay playsinline muted></video>
-                                <div id="camPlaceholderText" class="text-muted d-flex flex-column justify-content-center align-items-center h-100 bg-light small" style="position: absolute; width: 100%; top: 0; left: 0; z-index: 5; background: #fff !important;">
-                                    <i class="fa fa-video fs-3 mb-2 opacity-50" style="color: var(--subdivision-orange);"></i>
+                                <div id="camPlaceholderText" class="text-muted d-flex flex-column justify-content-center align-items-center h-100 bg-light small" style="position: absolute; width: 100%; top: 0; left: 0; z-index: 5; background: #f8fafc !important;">
+                                    <i class="fa fa-video fs-3 mb-2 opacity-50" style="color: var(--primary-orange);"></i>
                                     Webcam Stream Inactive
                                 </div>
                             </div>
                             <div class="d-grid gap-2">
                                 <button type="button" id="toggleCamBtn" class="btn btn-sm btn-dark fw-semibold py-2" onclick="startAdminCam()"><i class="fa fa-video me-2"></i>Turn On Device Camera</button>
-                                <button type="button" id="captureSnapBtn" class="btn btn-sm fw-bold text-white py-2" style="background-color: var(--subdivision-amber);" onclick="takeSnapshotStep('add')" disabled><i class="fa fa-camera me-2"></i>Snap Photo (<span id="snapCountLabel">0</span>/4)</button>
+                                <button type="button" id="captureSnapBtn" class="btn btn-sm fw-bold text-white py-2" style="background-color: var(--primary-orange);" onclick="takeSnapshotStep('add')" disabled><i class="fa fa-camera me-2"></i>Snap Photo (<span id="snapCountLabel">0</span>/4)</button>
                             </div>
                             
                             <div class="photo-grid">
                                 <div class="grid-snap-box" id="box_1"><span class="grid-snap-label">Front</span><i class="fa fa-image text-muted opacity-50"></i></div>
-                                <div class="grid-snap-box" id="box_2"><span class="grid-snap-label">Left Angle</span><i class="fa fa-image text-muted opacity-50"></i></div>
-                                <div class="grid-snap-box" id="box_3"><span class="grid-snap-label">Right Angle</span><i class="fa fa-image text-muted opacity-50"></i></div>
-                                <div class="grid-snap-box" id="box_4"><span class="grid-snap-label">Smile/Tilt</span><i class="fa fa-image text-muted opacity-50"></i></div>
+                                <div class="grid-snap-box" id="box_2"><span class="grid-snap-label">Left</span><i class="fa fa-image text-muted opacity-50"></i></div>
+                                <div class="grid-snap-box" id="box_3"><span class="grid-snap-label">Right</span><i class="fa fa-image text-muted opacity-50"></i></div>
+                                <div class="grid-snap-box" id="box_4"><span class="grid-snap-label">Tilt</span><i class="fa fa-image text-muted opacity-50"></i></div>
                             </div>
                             <div id="captureSuccessStatus" class="mt-2 text-success small fw-bold" style="display:none;"><i class="fa fa-check-circle me-1"></i>All 4 snapshots mapped!</div>
                         </div>
@@ -671,19 +843,20 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-sm btn-secondary fw-semibold px-3" data-bs-dismiss="modal" onclick="stopAdminCam()">Discard</button>
-                    <button type="submit" name="add_resident_btn" id="submitFormBtn" class="btn btn-sm text-white fw-bold px-4" style="background-color: var(--subdivision-orange);" disabled>Save Profile</button>
+                    <button type="submit" name="add_resident_btn" id="submitFormBtn" class="btn btn-sm text-white fw-bold px-4" style="background-color: var(--primary-orange);" disabled>Save Profile</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
+<!-- MODAL: EDIT RESIDENT -->
 <div class="modal fade" id="editResidentModal" data-bs-backdrop="static" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content border-0 shadow-lg" style="border-radius:12px;">
-            <div class="modal-header bg-dark text-white py-3">
-                <h5 class="modal-title fw-bold" style="font-size: 16px;"><i class="fa fa-user-pen me-2 text-warning"></i>Modify Resident Profile Link</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" onclick="stopEditAdminCam()"></button>
+        <div class="modal-content border-0">
+            <div class="modal-header border-bottom py-3">
+                <h5 class="modal-title fw-bold text-dark fs-6"><i class="fa fa-user-pen me-2 text-warning"></i>Modify Resident Profile Link</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="stopEditAdminCam()"></button>
             </div>
             <form action="residents.php" method="POST" id="editResidentForm">
                 <div class="modal-body p-4 bg-white">
@@ -716,7 +889,7 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
                                     <input type="text" name="edit_username" id="editUsername" class="form-control" required>
                                 </div>
                                 <div class="col-6">
-                                    <label class="form-label small fw-bold text-dark">Password (Leave blank to keep)</label>
+                                    <label class="form-label small fw-bold text-dark">Password (Leave blank)</label>
                                     <input type="password" name="edit_password" class="form-control" placeholder="••••••••">
                                 </div>
                             </div>
@@ -739,55 +912,56 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
                                     <img id="editFaceImageDisplay" src="" class="current-face-preview" alt="Thumbnail" style="display: none;">
                                     <video id="editFaceVideoDisplay" src="" class="current-face-preview" muted loop autoplay style="display: none;"></video>
                                 </div>
-                                <p class="text-muted small">This is the biometric capture template stored in your system.</p>
+                                <p class="text-muted small">Biometric matrix active and saved.</p>
                                 <button type="button" class="btn btn-sm btn-outline-dark fw-bold px-3 py-2" onclick="switchToCamRecapture()">
-                                    <i class="fa fa-arrows-rotate me-2"></i>Change / Recapture Face ID
+                                    <i class="fa fa-arrows-rotate me-2"></i>Recapture Face ID
                                 </button>
                             </div>
 
                             <div id="editFaceCamState" style="display:none;">
                                 <div class="admin-cam-box mb-3 mx-auto">
                                     <video id="editAdminWebcam" autoplay playsinline muted></video>
-                                    <div id="editCamPlaceholderText" class="text-muted d-flex flex-column justify-content-center align-items-center h-100 bg-light small" style="position: absolute; width:100%; top:0; left:0; z-index: 5; background: #fff !important;">
-                                        <i class="fa fa-camera fs-3 mb-2 opacity-50" style="color: var(--subdivision-orange);"></i>
+                                    <div id="editCamPlaceholderText" class="text-muted d-flex flex-column justify-content-center align-items-center h-100 bg-light small" style="position: absolute; width:100%; top:0; left:0; z-index: 5; background: #f8fafc !important;">
+                                        <i class="fa fa-camera fs-3 mb-2 opacity-50" style="color: var(--primary-orange);"></i>
                                         Camera System Idle
                                     </div>
                                 </div>
                                 <div class="d-grid gap-2">
-                                    <button type="button" id="editCaptureSnapBtn" class="btn btn-sm fw-bold text-white py-2" style="background-color: var(--subdivision-amber);" onclick="takeSnapshotStep('edit')"><i class="fa fa-camera me-2"></i>Snap Photo (<span id="editSnapCountLabel">0</span>/4)</button>
+                                    <button type="button" id="editCaptureSnapBtn" class="btn btn-sm fw-bold text-white py-2" style="background-color: var(--primary-orange);" onclick="takeSnapshotStep('edit')"><i class="fa fa-camera me-2"></i>Snap Photo (<span id="editSnapCountLabel">0</span>/4)</button>
                                     <button type="button" class="btn btn-sm btn-light border small text-secondary py-1" onclick="cancelCamRecapture()">Cancel Recapture</button>
                                 </div>
                                 <div class="photo-grid">
                                     <div class="grid-snap-box" id="edit_box_1"><span class="grid-snap-label">Front</span><i class="fa fa-image text-muted opacity-50"></i></div>
-                                    <div class="grid-snap-box" id="edit_box_2"><span class="grid-snap-label">Left Angle</span><i class="fa fa-image text-muted opacity-50"></i></div>
-                                    <div class="grid-snap-box" id="edit_box_3"><span class="grid-snap-label">Right Angle</span><i class="fa fa-image text-muted opacity-50"></i></div>
-                                    <div class="grid-snap-box" id="edit_box_4"><span class="grid-snap-label">Smile/Tilt</span><i class="fa fa-image text-muted opacity-50"></i></div>
+                                    <div class="grid-snap-box" id="edit_box_2"><span class="grid-snap-label">Left</span><i class="fa fa-image text-muted opacity-50"></i></div>
+                                    <div class="grid-snap-box" id="edit_box_3"><span class="grid-snap-label">Right</span><i class="fa fa-image text-muted opacity-50"></i></div>
+                                    <div class="grid-snap-box" id="edit_box_4"><span class="grid-snap-label">Tilt</span><i class="fa fa-image text-muted opacity-50"></i></div>
                                 </div>
-                                <div id="editCaptureSuccessStatus" class="mt-2 text-success small fw-bold" style="display:none;"><i class="fa fa-check-circle me-1"></i>New profile snapshots mapped!</div>
+                                <div id="editCaptureSuccessStatus" class="mt-2 text-success small fw-bold" style="display:none;"><i class="fa fa-check-circle me-1"></i>New snapshots mapped!</div>
                             </div>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-sm btn-secondary fw-semibold px-3" data-bs-dismiss="modal" onclick="stopEditAdminCam()">Cancel</button>
-                    <button type="submit" name="update_resident_btn" class="btn btn-sm text-white fw-bold px-4" style="background-color: var(--subdivision-orange);">Update Details</button>
+                    <button type="submit" name="update_resident_btn" class="btn btn-sm text-white fw-bold px-4" style="background-color: var(--primary-orange);">Update Details</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
+<!-- MODAL: DELETE CONFIRMATION -->
 <div class="modal fade" id="deleteResidentModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered" style="max-width: 400px;">
-        <div class="modal-content border-0 shadow-lg" style="border-radius:12px;">
-            <div class="modal-header bg-danger text-white py-3">
-                <h5 class="modal-title fw-bold" style="font-size: 15px;"><i class="fa fa-triangle-exclamation me-2"></i>Confirm Drop Operation</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        <div class="modal-content border-0">
+            <div class="modal-header border-bottom py-3">
+                <h5 class="modal-title fw-bold text-danger fs-6"><i class="fa fa-triangle-exclamation me-2"></i>Confirm Removal</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form action="residents.php" method="POST">
                 <div class="modal-body p-4 text-center bg-white">
                     <i class="fa fa-trash-can text-danger fs-1 mb-3 opacity-75"></i>
-                    <p class="text-dark fw-semibold mb-1" style="font-size: 15px;">Are you sure you want to completely erase this profile?</p>
+                    <p class="text-dark fw-semibold mb-1" style="font-size: 15px;">Delete resident permanently?</p>
                     <p class="text-muted small mb-0" id="deleteTargetText"></p>
                     
                     <input type="hidden" name="delete_resident_id" id="deleteResidentId">
@@ -795,7 +969,7 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
                 </div>
                 <div class="modal-footer bg-light border-0 justify-content-center">
                     <button type="button" class="btn btn-sm btn-secondary fw-semibold px-4" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" name="delete_resident_btn" class="btn btn-sm btn-danger fw-bold px-4">Delete Permanently</button>
+                    <button type="submit" name="delete_resident_btn" class="btn btn-sm btn-danger fw-bold px-4">Delete</button>
                 </div>
             </form>
         </div>
@@ -810,6 +984,35 @@ document.addEventListener("DOMContentLoaded", function() {
     const editModal = new bootstrap.Modal(document.getElementById('editResidentModal'));
     const deleteModal = new bootstrap.Modal(document.getElementById('deleteResidentModal'));
 
+    // Live Instant Search Filter
+    const searchInput = document.getElementById('residentSearchInput');
+    const tableRows = document.querySelectorAll('#residentsTable .resident-row');
+    const visibleCount = document.getElementById('visibleCount');
+
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const query = this.value.toLowerCase().trim();
+            let count = 0;
+
+            tableRows.forEach(row => {
+                const name = row.querySelector('.search-target-name')?.textContent.toLowerCase() || '';
+                const email = row.querySelector('.search-target-email')?.textContent.toLowerCase() || '';
+                const house = row.querySelector('.search-target-house')?.textContent.toLowerCase() || '';
+                const plate = row.querySelector('.search-target-plate')?.textContent.toLowerCase() || '';
+
+                if (name.includes(query) || email.includes(query) || house.includes(query) || plate.includes(query)) {
+                    row.style.display = '';
+                    count++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            if (visibleCount) visibleCount.textContent = count;
+        });
+    }
+
+    // Modal Trigger Handlers
     document.querySelectorAll('.edit-resident-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             document.getElementById('editResidentId').value = this.dataset.id;
@@ -844,17 +1047,18 @@ document.addEventListener("DOMContentLoaded", function() {
         btn.addEventListener('click', function() {
             document.getElementById('deleteResidentId').value = this.dataset.id;
             document.getElementById('deleteUserId').value = this.dataset.userid;
-            document.getElementById('deleteTargetText').innerText = "Resident Name: " + this.dataset.name;
+            document.getElementById('deleteTargetText').innerText = "Resident: " + this.dataset.name;
             deleteModal.show();
         });
     });
 });
 
+// Webcam and Snapshot Management
 let localStream = null;
 let editLocalStream = null;
 let currentPhotosCount = 0;
 let editPhotosCount = 0;
-const labels = ["Front", "Left Angle", "Right Angle", "Smile/Tilt"];
+const labels = ["Front", "Left", "Right", "Tilt"];
 
 async function startAdminCam() {
     const video = document.getElementById('adminWebcam');
@@ -987,4 +1191,4 @@ function cancelCamRecapture() {
 }
 </script>
 </body>
-</html> 
+</html>

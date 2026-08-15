@@ -20,7 +20,6 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
     if ($action === 'approve' || $action === 'reject') {
         $status_value = ($action === 'approve') ? 'approved' : 'rejected';
         
-        // MATCHED: Primary key is 'Id' with a capital I based on your schema image
         $sql = "UPDATE requests SET status = '$status_value' WHERE Id = $request_id";
         if ($conn->query($sql)) {
             header("Location: requests.php?success=Request status updated to " . strtoupper($status_value) . " successfully.");
@@ -33,7 +32,7 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
 
 if (isset($_GET['success'])) { $success_msg = $_GET['success']; }
 
-// 2. FETCH ALL REQUESTS ROWS MATCHED TO YOUR EXACT COLUMNS: Id, requester_name, requester_type, request_details
+// 2. FETCH ALL REQUESTS ROWS MATCHED TO YOUR EXACT COLUMNS
 $requests_query = "SELECT req.Id as request_id, req.requester_type, req.request_details, req.status, req.created_at, res.full_name, res.house_number 
                    FROM requests req
                    JOIN residents res ON req.requester_name = res.id 
@@ -46,7 +45,8 @@ $requests_result = $conn->query($requests_query);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ResiCured - Request Management</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/theme/bootstrap.min.css" rel="stylesheet">
+    <!-- Fixed Bootstrap CSS CDN Link -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
     <style>
@@ -106,6 +106,7 @@ $requests_result = $conn->query($requests_query);
             </div>
             <ul class="sidebar-menu mt-3">
                 <li><a href="dashboard.php" class="nav-link"><i class="fa fa-chart-pie"></i> Dashboard</a></li>
+                <li><a href="events.php" class="nav-link"><i class="fa fa-calendar-alt"></i> Events</a></li>
                 <li><a href="residents.php" class="nav-link"><i class="fa fa-users"></i> Residents</a></li>
                 <li><a href="face_registration.php" class="nav-link"><i class="fa fa-user-shield"></i> Personnel</a></li>
                 <li><a href="requests.php" class="nav-link active"><i class="fa fa-file-alt"></i> Requests</a></li>
@@ -160,7 +161,12 @@ $requests_result = $conn->query($requests_query);
                                         <strong><?php echo htmlspecialchars($row['full_name']); ?></strong><br>
                                         <small class="text-muted fw-bold"><i class="fa fa-home me-1"></i><?php echo htmlspecialchars($row['house_number']); ?></small>
                                     </td>
-                                    <td><span class="badge bg-light text-dark border px-2.5 py-1.5 fw-semibold" style="font-size:12px; text-transform: uppercase;"><?php echo htmlspecialchars($row['requester_type']); ?></span></td>
+                                    <td>
+                                        <!-- FIXED: Render requester_type with fallback for older rows -->
+                                        <span class="badge bg-light text-dark border px-2.5 py-1.5 fw-semibold" style="font-size:12px; text-transform: uppercase;">
+                                            <?php echo !empty(trim($row['requester_type'])) ? htmlspecialchars($row['requester_type']) : 'General Request'; ?>
+                                        </span>
+                                    </td>
                                     <td style="max-width:300px; white-space: normal;"><span class="small text-secondary"><?php echo htmlspecialchars($row['request_details']); ?></span></td>
                                     <td class="text-secondary small"><?php echo date('M d, Y, g:i A', strtotime($row['created_at'])); ?></td>
                                     <td>

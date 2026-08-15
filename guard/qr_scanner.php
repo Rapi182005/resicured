@@ -28,6 +28,7 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
         .video-box-frame { background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 8px; min-height: 380px; padding: 16px; display: flex; align-items: center; justify-content: center; }
         #qr-reader { border: none !important; width: 100% !important; }
         #qr-reader__dashboard_section_csr button, .btn-custom-orange { background-color: var(--subdivision-orange) !important; color: white !important; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; }
+        .timestamp-box { background: #f1f5f9; border-radius: 8px; padding: 10px 14px; border: 1px solid #e2e8f0; }
     </style>
 </head>
 <body>
@@ -48,7 +49,7 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
         <div class="d-flex justify-content-between align-items-center pb-3 mb-4 border-bottom">
             <div>
                 <h1 class="h3 fw-bold text-dark m-0">Optical QR Code Scanner</h1>
-                <p class="text-muted small mb-0">Scan generated dynamic digital guest visitor token sheets to process access entry clearance checks.</p>
+                <p class="text-muted small mb-0">Scan guest visitor passes to log Time In and Time Out status.</p>
             </div>
         </div>
 
@@ -73,9 +74,29 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
                     <h5 class="fw-bold mb-3"><i class="fa-solid fa-id-card text-success me-2"></i> Visitor Clearance Parameters</h5>
                     <hr>
                     <div id="clearanceDataBox" class="d-none">
-                        <p class="mb-2"><strong>Visitor Name:</strong> <br><span id="lblVerifiedName" class="fw-bold text-success fs-5">-</span></p>
-                        <p class="mb-2"><strong>Role Status:</strong> <br><span id="lblVerifiedRole" class="badge bg-dark">AUTHORIZED VISITOR</span></p>
-                        <p class="mb-0"><strong>Host Destination Assignment:</strong> <br><span id="lblVerifiedDest" class="text-muted small">-</span></p>
+                        <!-- SCAN STATUS BADGE -->
+                        <div class="mb-3 text-center">
+                            <span id="lblActionType" class="badge bg-success fs-6 px-3 py-2">ENTRY LOGGED (TIME IN)</span>
+                        </div>
+
+                        <p class="mb-2"><strong>Visitor Name:</strong> <br><span id="lblVerifiedName" class="fw-bold text-dark fs-5">-</span></p>
+                        <p class="mb-3"><strong>Host Destination Assignment:</strong> <br><span id="lblVerifiedDest" class="text-muted small">-</span></p>
+
+                        <!-- TIMESTAMPS DISPLAY -->
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <div class="timestamp-box">
+                                    <small class="text-muted d-block fw-bold"><i class="fa-solid fa-right-to-bracket text-success me-1"></i> Time In</small>
+                                    <span id="lblTimeIn" class="fw-bold text-dark small">-</span>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="timestamp-box">
+                                    <small class="text-muted d-block fw-bold"><i class="fa-solid fa-right-from-bracket text-danger me-1"></i> Time Out</small>
+                                    <span id="lblTimeOut" class="fw-bold text-dark small">Still Inside</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div id="emptyDataBox" class="text-muted small text-center py-4">Scan a physical pass paper/token sheet array to parse values.</div>
                 </div>
@@ -116,13 +137,30 @@ document.addEventListener("DOMContentLoaded", function() {
         fetch('verify_qr.php', { method: 'POST', body: fd })
         .then(res => res.json()).then(data => {
             if(data.success) {
-                showFeedback(`Access Clear: Entry logging success.`, "success");
+                showFeedback(`Access Recorded: ${data.action_type} successfully logged.`, "success");
+                
+                // Populate Visitor Details
                 document.getElementById('lblVerifiedName').textContent = data.visitor_name;
                 document.getElementById('lblVerifiedDest').textContent = `House No. ${data.house_number} (Resident Host: ${data.resident_name})`;
+                
+                // Update Movement Status & Timestamps
+                const actionBadge = document.getElementById('lblActionType');
+                if (data.action_type === 'TIME IN') {
+                    actionBadge.className = 'badge bg-success fs-6 px-3 py-2';
+                    actionBadge.textContent = 'ENTRY LOGGED (TIME IN)';
+                } else {
+                    actionBadge.className = 'badge bg-danger fs-6 px-3 py-2';
+                    actionBadge.textContent = 'EXIT LOGGED (TIME OUT)';
+                }
+
+                document.getElementById('lblTimeIn').textContent = data.time_in ? data.time_in : '-';
+                document.getElementById('lblTimeOut').textContent = data.time_out ? data.time_out : 'Still Inside';
+
                 document.getElementById('clearanceDataBox').classList.remove('d-none');
                 document.getElementById('emptyDataBox').classList.add('d-none');
                 new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav').play().catch(()=>{});
-                setTimeout(() => { location.reload(); }, 3500);
+                
+                setTimeout(() => { location.reload(); }, 4000);
             } else {
                 showFeedback(data.message, "danger");
                 document.getElementById('clearanceDataBox').classList.add('d-none');
