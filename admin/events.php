@@ -21,28 +21,28 @@ if (file_exists('../config/database.php')) {
     }
 }
 
-// 3. HANDLER: ADD NEW EVENT (FIXED FOREIGN KEY CHECK)
+// 3. HANDLER: ADD NEW EVENT
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_event'])) {
     $title = mysqli_real_escape_string($conn, trim($_POST['title']));
     $event_date = mysqli_real_escape_string($conn, $_POST['event_date']);
+    $time_start = mysqli_real_escape_string($conn, $_POST['time_start']);
+    $time_end = mysqli_real_escape_string($conn, $_POST['time_end']);
     $location = mysqli_real_escape_string($conn, trim($_POST['location']));
     $description = mysqli_real_escape_string($conn, trim($_POST['description']));
 
-    // Capture user ID from session
     $session_user_id = $_SESSION['user_id'] ?? $_SESSION['id'] ?? null;
     $created_by = "NULL";
 
-    // Validate that the session user ID actually exists in the `users` table
     if (!empty($session_user_id)) {
         $safe_user_id = intval($session_user_id);
         $user_check = mysqli_query($conn, "SELECT id FROM users WHERE id = $safe_user_id");
         if ($user_check && mysqli_num_rows($user_check) > 0) {
-            $created_by = $safe_user_id; // Valid FK match
+            $created_by = $safe_user_id;
         }
     }
 
-    $insert_query = "INSERT INTO events (title, description, event_date, location, created_by) 
-                     VALUES ('$title', '$description', '$event_date', '$location', $created_by)";
+    $insert_query = "INSERT INTO events (title, description, event_date, time_start, time_end, location, created_by) 
+                     VALUES ('$title', '$description', '$event_date', '$time_start', '$time_end', '$location', $created_by)";
 
     if (mysqli_query($conn, $insert_query)) {
         $_SESSION['status'] = "Subdivision event published successfully!";
@@ -56,7 +56,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_event'])) {
     exit();
 }
 
-// 4. HANDLER: DELETE EVENT
+// 4. HANDLER: EDIT / UPDATE EVENT
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_event'])) {
+    $event_id = intval($_POST['event_id']);
+    $title = mysqli_real_escape_string($conn, trim($_POST['title']));
+    $event_date = mysqli_real_escape_string($conn, $_POST['event_date']);
+    $time_start = mysqli_real_escape_string($conn, $_POST['time_start']);
+    $time_end = mysqli_real_escape_string($conn, $_POST['time_end']);
+    $location = mysqli_real_escape_string($conn, trim($_POST['location']));
+    $description = mysqli_real_escape_string($conn, trim($_POST['description']));
+
+    $update_query = "UPDATE events SET 
+                        title = '$title', 
+                        description = '$description', 
+                        event_date = '$event_date', 
+                        time_start = '$time_start', 
+                        time_end = '$time_end', 
+                        location = '$location' 
+                     WHERE id = $event_id";
+
+    if (mysqli_query($conn, $update_query)) {
+        $_SESSION['status'] = "Event updated successfully!";
+        $_SESSION['status_type'] = "success";
+    } else {
+        $_SESSION['status'] = "Error updating event: " . mysqli_error($conn);
+        $_SESSION['status_type'] = "danger";
+    }
+
+    header("Location: " . $_SERVER['PHP_SELF']);
+    exit();
+}
+
+// 5. HANDLER: DELETE EVENT
 if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
     $event_id = intval($_GET['id']);
     $delete_query = "DELETE FROM events WHERE id = $event_id";
@@ -73,21 +104,58 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
     exit();
 }
 
-// 5. FETCH DATA & STATISTICS
-$events_query = "SELECT * FROM events ORDER BY event_date ASC";
+// 6. FETCH DATA & STATISTICS
+// 6. FETCH DATA & STATISTICS
+$events_query = "SELECT * FROM events ORDER BY event_date ASC, time_start ASC";
 $events_result = mysqli_query($conn, $events_query);
 
-$total_events = $events_result ? mysqli_num_rows($events_result) : 0;
+$events_list = [];
+$calendar_events = [];
 
-$upcoming_query = "SELECT COUNT(*) as total FROM events WHERE event_date >= NOW()";
+if ($events_result && mysqli_num_rows($events_result) > 0) {
+    while ($row = mysqli_fetch_assoc($events_result)) {
+        $events_list[] = $row;
+        
+        // Extract clean YYYY-MM-DD date regardless of DATETIME or DATE column type
+        $clean_date = date('Y-m-d', strtotime($row['event_date']));
+
+        // Build valid ISO 8601 strings for FullCalendar
+        if (!empty($row['time_start'])) {
+            $start_iso = $clean_date . 'T' . date('H:i:s', strtotime($row['time_start']));
+        } else {
+            $start_iso = date('Y-m-d\TH:i:s', strtotime($row['event_date']));
+        }
+
+        $end_iso = !empty($row['time_end']) ? $clean_date . 'T' . date('H:i:s', strtotime($row['time_end'])) : null;
+
+        $cal_item = [
+            'id'             => $row['id'],
+            'title'          => $row['title'],
+            'start'          => $start_iso,
+            'description'    => $row['description'],
+            'location'       => $row['location'],
+            'time_formatted' => (!empty($row['time_start']) ? date("g:i A", strtotime($row['time_start'])) : '') . 
+                                (!empty($row['time_end']) ? ' - ' . date("g:i A", strtotime($row['time_end'])) : '')
+        ];
+        
+        if ($end_iso) {
+            $cal_item['end'] = $end_iso;
+        }
+
+        $calendar_events[] = $cal_item;
+    }
+}
+
+$total_events = count($events_list);
+
+$upcoming_query = "SELECT COUNT(*) as total FROM events WHERE event_date >= CURDATE()";
 $upcoming_res = mysqli_query($conn, $upcoming_query);
 $upcoming_count = ($upcoming_res && $u_row = mysqli_fetch_assoc($upcoming_res)) ? $u_row['total'] : 0;
 
-$past_query = "SELECT COUNT(*) as total FROM events WHERE event_date < NOW()";
+$past_query = "SELECT COUNT(*) as total FROM events WHERE event_date < CURDATE()";
 $past_res = mysqli_query($conn, $past_query);
 $past_count = ($past_res && $p_row = mysqli_fetch_assoc($past_res)) ? $p_row['total'] : 0;
 
-// Page tracking for dynamic sidebar active state
 $current_page = basename($_SERVER['PHP_SELF']);
 ?>
 <!DOCTYPE html>
@@ -99,6 +167,8 @@ $current_page = basename($_SERVER['PHP_SELF']);
     <!-- Bootstrap 5 & FontAwesome 6 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- FullCalendar Library -->
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
     
     <style>
         :root {
@@ -279,6 +349,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
             padding: 24px;
             box-sizing: border-box;
             box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            height: 100%;
         }
 
         .btn-orange-action {
@@ -307,7 +378,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
             border: 1px solid #cbd5e1;
             border-radius: 8px;
             padding: 8px 14px;
-            width: 320px;
+            width: 100%;
             transition: all 0.2s;
         }
 
@@ -320,6 +391,15 @@ $current_page = basename($_SERVER['PHP_SELF']);
         .custom-log-table {
             margin-bottom: 0;
             vertical-align: middle;
+        }
+
+        .custom-log-table td, 
+        .custom-log-table th {
+            white-space: nowrap;
+        }
+
+        .custom-log-table td:first-child {
+            white-space: normal;
         }
         
         .custom-log-table thead th {
@@ -345,9 +425,34 @@ $current_page = basename($_SERVER['PHP_SELF']);
             color: #475569;
             border: 1px solid #e2e8f0;
             font-size: 12px;
-            padding: 4px 10px;
+            padding: 5px 10px;
             border-radius: 6px;
             font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            white-space: nowrap;
+        }
+
+        .btn-soft-warning {
+            background-color: #fffbe3;
+            color: #b45309;
+            border: 1px solid #fde68a;
+            font-weight: 600;
+            font-size: 12px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            text-decoration: none;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            white-space: nowrap;
+            line-height: 1;
+        }
+
+        .btn-soft-warning:hover {
+            background-color: #f59e0b;
+            color: #ffffff;
         }
 
         .btn-soft-danger {
@@ -356,15 +461,84 @@ $current_page = basename($_SERVER['PHP_SELF']);
             border: 1px solid #fed7d7;
             font-weight: 600;
             font-size: 12px;
-            padding: 5px 12px;
+            padding: 6px 12px;
             border-radius: 6px;
             text-decoration: none;
             transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            white-space: nowrap;
+            line-height: 1;
         }
 
         .btn-soft-danger:hover {
             background-color: #e53e3e;
             color: #ffffff;
+        }
+
+        #eventCalendar {
+            font-size: 13px;
+        }
+        .fc .fc-toolbar-title {
+            font-size: 16px !important;
+            font-weight: 700;
+            color: #2d3748;
+        }
+        .fc .fc-button-primary {
+            background-color: #ffffff !important;
+            border-color: #cbd5e1 !important;
+            color: #475569 !important;
+            font-weight: 600;
+            font-size: 12px;
+            box-shadow: none !important;
+        }
+        .fc .fc-button-primary:hover {
+            background-color: #f1f5f9 !important;
+            color: #1e293b !important;
+        }
+        .fc .fc-button-active {
+            background-color: var(--subdivision-orange) !important;
+            border-color: var(--subdivision-orange) !important;
+            color: #ffffff !important;
+        }
+        .fc-event {
+            background-color: #ea580c !important;
+            border: none !important;
+            border-radius: 4px;
+            padding: 2px 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+        .fc-event:hover {
+            transform: scale(1.02);
+        }
+        .fc-daygrid-day-number {
+            color: #475569;
+            font-weight: 600;
+            text-decoration: none !important;
+        }
+
+        .event-detail-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            background-color: rgba(230, 106, 0, 0.1);
+            color: var(--subdivision-orange);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .event-description-box {
+            background-color: #f8fafc;
+            border: 1px dashed #cbd5e1;
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: #475569;
+            font-size: 13px;
         }
     </style>
 </head>
@@ -385,7 +559,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 <li><a href="events.php" class="nav-link <?= ($current_page == 'events.php') ? 'active' : ''; ?>"><i class="fa fa-calendar-alt"></i> Events</a></li>
                 <li><a href="residents.php" class="nav-link <?= ($current_page == 'residents.php') ? 'active' : ''; ?>"><i class="fa fa-users"></i> Residents</a></li>
                 <li><a href="face_registration.php" class="nav-link <?= ($current_page == 'face_registration.php') ? 'active' : ''; ?>"><i class="fa fa-user-shield"></i> Personnel</a></li>
-                <li><a href="requests.php" class="nav-link <?= ($current_page == 'requests.php') ? 'active' : ''; ?>"><i class="fa fa-file-alt"></i> Requests</a></li>
+                <li><a href="requests.php" class="nav-link <?= ($current_page == 'requests.php') ? 'active' : ''; ?>"><i class="fa fa-file-alt"></i> Requests & Concerns</a></li>
                 <li><a href="billing.php" class="nav-link <?= ($current_page == 'billing.php') ? 'active' : ''; ?>"><i class="fa fa-credit-card"></i> Billing</a></li>
                 <li><a href="expenses.php" class="nav-link <?= ($current_page == 'expenses.php') ? 'active' : ''; ?>"><i class="fa fa-money-bill-transfer"></i> Expenses</a></li>
                 <li><a href="guards.php" class="nav-link <?= ($current_page == 'guards.php') ? 'active' : ''; ?>"><i class="fa fa-user-lock"></i> Staff Guards</a></li>
@@ -451,70 +625,111 @@ $current_page = basename($_SERVER['PHP_SELF']);
             </div>
         </div>
 
-        <!-- Table Container Card -->
-        <div class="content-card">
+        <div class="row g-4">
             
-            <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
-                <div class="d-flex align-items-center position-relative">
-                    <input type="text" id="eventSearch" class="filter-search-input ps-5" placeholder="Search event title or location..." onkeyup="filterEvents()">
-                    <i class="fa fa-search text-muted position-absolute ms-3" style="font-size: 13px;"></i>
-                </div>
-                <div class="text-secondary small fw-semibold">
-                    Directory Records: <span class="text-dark fw-bold" id="recordCount"><?= $total_events; ?></span>
-                </div>
-            </div>
+            <!-- Left Side: Table Container Card -->
+            <div class="col-lg-6">
+                <div class="content-card">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+                        <div class="d-flex align-items-center position-relative w-100" style="max-width: 280px;">
+                            <input type="text" id="eventSearch" class="filter-search-input ps-5 w-100" placeholder="Search event title or location..." onkeyup="filterEvents()">
+                            <i class="fa fa-search text-muted position-absolute ms-3" style="font-size: 13px;"></i>
+                        </div>
+                        <div class="text-secondary small fw-semibold">
+                            Records: <span class="text-dark fw-bold" id="recordCount"><?= $total_events; ?></span>
+                        </div>
+                    </div>
 
-            <div class="table-responsive" style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
-                <table class="table custom-log-table" id="eventsTable">
-                    <thead>
-                        <tr>
-                            <th>Event Details</th>
-                            <th>Date & Time</th>
-                            <th>Location</th>
-                            <th class="text-center">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if ($events_result && mysqli_num_rows($events_result) > 0): ?>
-                            <?php while ($row = mysqli_fetch_assoc($events_result)): ?>
+                    <div class="table-responsive" style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                        <table class="table custom-log-table" id="eventsTable">
+                            <thead>
                                 <tr>
-                                    <td>
-                                        <div class="fw-bold text-dark mb-1"><?= htmlspecialchars($row['title']); ?></div>
-                                        <?php if (!empty($row['description'])): ?>
-                                            <div class="text-muted" style="font-size: 13px;"><?= htmlspecialchars($row['description']); ?></div>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="font-monospace" style="font-size: 13px;">
-                                        <i class="fa-regular fa-calendar-days text-muted me-1"></i> 
-                                        <?= date("M d, Y — g:i A", strtotime($row['event_date'])); ?>
-                                    </td>
-                                    <td>
-                                        <span class="badge-location-tag">
-                                            <i class="fa-solid fa-location-dot me-1 text-danger"></i><?= htmlspecialchars($row['location']); ?>
-                                        </span>
-                                    </td>
-                                    <td class="text-center">
-                                        <a href="<?= $_SERVER['PHP_SELF']; ?>?action=delete&id=<?= $row['id']; ?>" 
-                                           class="btn-soft-danger" 
-                                           onclick="return confirm('Are you sure you want to delete this event?');">
-                                           <i class="fa-solid fa-trash-can me-1"></i> Delete
-                                        </a>
-                                    </td>
+                                    <th>Event Details</th>
+                                    <th>Date & Time</th>
+                                    <th>Location</th>
+                                    <th class="text-center">Actions</th>
                                 </tr>
-                            <?php endwhile; ?>
-                        <?php else: ?>
-                            <tr id="noRecordsRow">
-                                <td colspan="4" class="text-center py-5 text-muted small">
-                                    <i class="fa fa-calendar-xmark d-block mb-2 text-secondary" style="font-size: 28px;"></i>
-                                    No subdivision events scheduled at the moment.
-                                </td>
-                            </tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
+                            </thead>
+                            <tbody>
+                                <?php if (count($events_list) > 0): ?>
+                                    <?php foreach ($events_list as $row): ?>
+                                        <tr>
+                                            <td>
+                                                <div class="fw-bold text-dark mb-1"><?= htmlspecialchars($row['title']); ?></div>
+                                                <?php if (!empty($row['description'])): ?>
+                                                    <div class="text-muted" style="font-size: 13px;"><?= htmlspecialchars($row['description']); ?></div>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td class="font-monospace" style="font-size: 12px;">
+                                                <div><i class="fa-regular fa-calendar-days text-muted me-1"></i> <?= date("M d, Y", strtotime($row['event_date'])); ?></div>
+                                                <?php if (!empty($row['time_start'])): ?>
+                                                    <div class="text-muted small mt-1">
+                                                        <i class="fa-regular fa-clock me-1"></i>
+                                                        <?= date("g:i A", strtotime($row['time_start'])); ?>
+                                                        <?= !empty($row['time_end']) ? ' - ' . date("g:i A", strtotime($row['time_end'])) : ''; ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <span class="badge-location-tag">
+                                                    <i class="fa-solid fa-location-dot me-1 text-danger"></i><?= htmlspecialchars($row['location']); ?>
+                                                </span>
+                                            </td>
+                                            <td class="text-center">
+                                                <div class="d-inline-flex align-items-center gap-1">
+                                                    <!-- Edit Button -->
+                                                    <button type="button" 
+                                                            class="btn-soft-warning border-0" 
+                                                            onclick="openEditModal(
+                                                                '<?= $row['id']; ?>', 
+                                                                '<?= htmlspecialchars($row['title'], ENT_QUOTES); ?>', 
+                                                                '<?= $row['event_date']; ?>', 
+                                                                '<?= $row['time_start'] ?? ''; ?>', 
+                                                                '<?= $row['time_end'] ?? ''; ?>', 
+                                                                '<?= htmlspecialchars($row['location'], ENT_QUOTES); ?>', 
+                                                                '<?= htmlspecialchars($row['description'] ?? '', ENT_QUOTES); ?>'
+                                                            )">
+                                                        <i class="fa-solid fa-pen-to-square me-1"></i> Edit
+                                                    </button>
+
+                                                    <!-- Delete Button -->
+                                                    <a href="<?= $_SERVER['PHP_SELF']; ?>?action=delete&id=<?= $row['id']; ?>" 
+                                                       class="btn-soft-danger" 
+                                                       onclick="return confirm('Are you sure you want to delete this event?');">
+                                                       <i class="fa-solid fa-trash-can me-1"></i> Delete
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <tr id="noRecordsRow">
+                                        <td colspan="4" class="text-center py-5 text-muted small">
+                                            <i class="fa fa-calendar-xmark d-block mb-2 text-secondary" style="font-size: 28px;"></i>
+                                            No subdivision events scheduled at the moment.
+                                        </td>
+                                    </tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
 
-        </div> 
+            <!-- Right Side: Interactive Calendar Card -->
+            <div class="col-lg-6">
+                <div class="content-card">
+                    <div class="d-flex align-items-center justify-content-between pb-3 mb-3 border-bottom">
+                        <h6 class="fw-bold text-dark m-0 d-flex align-items-center gap-2">
+                            <i class="fa-solid fa-calendar-days text-warning fs-5"></i> Schedule Calendar
+                        </h6>
+                    </div>
+                    <div id="eventCalendar"></div>
+                </div>
+            </div>
+
+        </div>
+
     </div> 
 </div> 
 
@@ -534,8 +749,19 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     </div>
 
                     <div class="mb-3">
-                        <label for="event_date" class="form-label fw-semibold text-secondary small">Event Date & Time <span class="text-danger">*</span></label>
-                        <input type="datetime-local" class="form-control filter-search-input w-100" id="event_date" name="event_date" required>
+                        <label for="event_date" class="form-label fw-semibold text-secondary small">Event Date <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control filter-search-input w-100" id="event_date" name="event_date" required>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label for="time_start" class="form-label fw-semibold text-secondary small">Start Time <span class="text-danger">*</span></label>
+                            <input type="time" class="form-control filter-search-input w-100" id="time_start" name="time_start" required>
+                        </div>
+                        <div class="col-6">
+                            <label for="time_end" class="form-label fw-semibold text-secondary small">End Time <span class="text-danger">*</span></label>
+                            <input type="time" class="form-control filter-search-input w-100" id="time_end" name="time_end" required>
+                        </div>
                     </div>
 
                     <div class="mb-3">
@@ -557,10 +783,111 @@ $current_page = basename($_SERVER['PHP_SELF']);
     </div>
 </div>
 
+<!-- Edit Event Modal -->
+<div class="modal fade" id="editEventModal" tabindex="-1" aria-labelledby="editEventModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 12px;">
+            <div class="modal-header border-bottom pb-3">
+                <h5 class="modal-title fw-bold text-dark" id="editEventModalLabel">Edit Subdivision Event</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="<?= $_SERVER['PHP_SELF']; ?>" method="POST">
+                <input type="hidden" name="event_id" id="edit_event_id">
+                <div class="modal-body py-3">
+                    <div class="mb-3">
+                        <label for="edit_title" class="form-label fw-semibold text-secondary small">Event Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control filter-search-input w-100" id="edit_title" name="title" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="edit_event_date" class="form-label fw-semibold text-secondary small">Event Date <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control filter-search-input w-100" id="edit_event_date" name="event_date" required>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label for="edit_time_start" class="form-label fw-semibold text-secondary small">Start Time <span class="text-danger">*</span></label>
+                            <input type="time" class="form-control filter-search-input w-100" id="edit_time_start" name="time_start" required>
+                        </div>
+                        <div class="col-6">
+                            <label for="edit_time_end" class="form-label fw-semibold text-secondary small">End Time <span class="text-danger">*</span></label>
+                            <input type="time" class="form-control filter-search-input w-100" id="edit_time_end" name="time_end" required>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="edit_location" class="form-label fw-semibold text-secondary small">Location <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control filter-search-input w-100" id="edit_location" name="location" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="edit_description" class="form-label fw-semibold text-secondary small">Event Description / Details</label>
+                        <textarea class="form-control filter-search-input w-100" id="edit_description" name="description" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer border-top pt-3">
+                    <button type="button" class="btn btn-light fw-semibold" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" name="update_event" class="btn btn-orange-action">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Styled View Event Details Modal -->
+<div class="modal fade" id="viewEventModal" tabindex="-1" aria-labelledby="viewEventModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 12px; overflow: hidden;">
+            <div class="modal-header border-bottom py-3" style="background-color: #f8fafc;">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-warning text-dark px-2 py-1 fw-bold" style="font-size: 11px;">EVENT DETAILS</span>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <h4 class="fw-bold text-dark mb-4" id="viewModalTitle">General Assembly</h4>
+
+                <div class="d-flex align-items-start gap-3 mb-3">
+                    <div class="event-detail-icon">
+                        <i class="fa-regular fa-calendar-days"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">DATE & TIME</div>
+                        <div class="fw-semibold text-dark" id="viewModalDate">-</div>
+                    </div>
+                </div>
+
+                <div class="d-flex align-items-start gap-3 mb-3">
+                    <div class="event-detail-icon">
+                        <i class="fa-solid fa-location-dot"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">LOCATION</div>
+                        <div class="fw-semibold text-dark" id="viewModalLocation">-</div>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <div class="text-muted small fw-semibold mb-2">DESCRIPTION / AGENDA</div>
+                    <div class="event-description-box" id="viewModalDescription">
+                        No description provided for this event.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-top bg-light py-2 px-4 d-flex justify-content-between align-items-center">
+                <a id="viewModalDeleteBtn" href="#" class="btn-soft-danger" onclick="return confirm('Are you sure you want to delete this event?');">
+                    <i class="fa-solid fa-trash-can me-1"></i> Delete Event
+                </a>
+                <button type="button" class="btn btn-secondary btn-sm px-3 fw-semibold" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
-<!-- Search Filter Script -->
 <script>
+// Search Filter Script
 function filterEvents() {
     let input = document.getElementById("eventSearch").value.toLowerCase();
     let rows = document.querySelectorAll("#eventsTable tbody tr");
@@ -579,6 +906,62 @@ function filterEvents() {
 
     document.getElementById("recordCount").innerText = visibleCount;
 }
+
+// Populates and triggers the Edit Event Modal
+function openEditModal(id, title, date, timeStart, timeEnd, location, description) {
+    document.getElementById('edit_event_id').value = id;
+    document.getElementById('edit_title').value = title;
+    document.getElementById('edit_event_date').value = date;
+    document.getElementById('edit_time_start').value = timeStart;
+    document.getElementById('edit_time_end').value = timeEnd;
+    document.getElementById('edit_location').value = location;
+    document.getElementById('edit_description').value = description;
+
+    var editModal = new bootstrap.Modal(document.getElementById('editEventModal'));
+    editModal.show();
+}
+
+// FullCalendar Initialization
+document.addEventListener('DOMContentLoaded', function() {
+    var calendarEl = document.getElementById('eventCalendar');
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        headerToolbar: {
+            left: 'prev,next',
+            center: 'title',
+            right: 'today'
+        },
+        height: 'auto',
+        events: <?= json_encode($calendar_events); ?>,
+        eventClick: function(info) {
+            document.getElementById('viewModalTitle').innerText = info.event.title;
+            
+            let dateStr = '';
+            if (info.event.start) {
+                const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+                dateStr = info.event.start.toLocaleDateString('en-US', options);
+                
+                if (info.event.extendedProps.time_formatted) {
+                    dateStr += ' (' + info.event.extendedProps.time_formatted + ')';
+                }
+            } else {
+                dateStr = 'Not specified';
+            }
+            document.getElementById('viewModalDate').innerText = dateStr;
+
+            document.getElementById('viewModalLocation').innerText = info.event.extendedProps.location || 'Subdivision Premises';
+            
+            const desc = info.event.extendedProps.description;
+            document.getElementById('viewModalDescription').innerText = (desc && desc.trim() !== '') ? desc : 'No detailed agenda or notes attached to this event.';
+
+            document.getElementById('viewModalDeleteBtn').href = '<?= $_SERVER['PHP_SELF']; ?>?action=delete&id=' + info.event.id;
+
+            var viewEventModal = new bootstrap.Modal(document.getElementById('viewEventModal'));
+            viewEventModal.show();
+        }
+    });
+    calendar.render();
+});
 </script>
 
 </body>

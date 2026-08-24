@@ -1,13 +1,10 @@
 <?php
-// Start session at the absolute top
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// 1. SET HEADER IMMEDIATELY
 header('Content-Type: application/json');
 
-// 2. GATEWAY AUTHENTICATION
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
     echo json_encode(['success' => false, 'message' => 'Unauthorized entry session window.']);
     exit();
@@ -16,47 +13,76 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
 require_once '../config/database.php';
 
 if (isset($_POST['qr_token'])) {
-    // Clean up any rogue spaces or string variations passed by scanners
     $qr_token = $conn->real_escape_string(trim($_POST['qr_token']));
     
-    // Explicitly enforce system timezone to prevent host clock drops
     date_default_timezone_set('Asia/Manila'); 
     $current_date = date('Y-m-d');
 
-    // Query to match visitor pass token with resident host records
-    $query = "SELECT v.id, v.visitor_name, v.visit_date, v.status, r.full_name as resident_name, r.house_number 
+    $query = "SELECT v.id, v.visitor_name, v.message, v.visit_date, v.status, v.time_in, v.time_out, r.full_name as resident_name, r.house_number 
               FROM visitors v
               JOIN residents r ON v.resident_id = r.user_id 
               WHERE BINARY v.qr_code_token = '$qr_token' LIMIT 1";
               
     $result = $conn->query($query);
 
-    if ($result && $result->num_rows > 0) {
+    if (!$result) {
+        echo json_encode(['success' => false, 'message' => 'Database Query Error: ' . $conn->error]);
+        exit();
+    }
+
+    if ($result->num_rows > 0) {
         $pass = $result->fetch_assoc();
         
-        // Clean up database date string to ensure strtotime() parses 2026 cleanly
         $clean_visit_date = date('Y-m-d', strtotime(trim($pass['visit_date'])));
 
-        // Check structural access dates against target calendars
         if ($clean_visit_date !== $current_date) {
             echo json_encode([
                 'success' => false, 
-                'message' => "Access Denied: Pass is valid for " . date('M d, Y', strtotime($clean_visit_date)) . " (System tracking says today is " . date('M d, Y', strtotime($current_date)) . ")"
+                'message' => "Access Denied: Pass is valid for " . date('M d, Y', strtotime($clean_visit_date)) . " (Today is " . date('M d, Y', strtotime($current_date)) . ")"
             ]);
-        } elseif ($pass['status'] !== 'approved') {
+        } elseif (!in_array($pass['status'], ['approved', 'entered', 'used'])) {
             echo json_encode(['success' => false, 'message' => 'Access Denied: Pass is ' . strtoupper($pass['status'])]);
         } else {
-            // Valid pass! Inject entry ledger item into logging sequence
             $visitor_id = $pass['id'];
+            $now = date('Y-m-d H:i:s');
+
+            if (empty($pass['time_in'])) {
+                // First scan: Log Time In
+                $action_type = 'TIME IN';
+                $log_type = 'entry';
+                $time_in_display = date('g:i A', strtotime($now));
+                $time_out_display = null;
+                
+                $conn->query("UPDATE visitors SET time_in = '$now', status = 'entered' WHERE id = '$visitor_id'");
+            } else if (empty($pass['time_out'])) {
+                // Second scan: Log Time Out
+                $action_type = 'TIME OUT';
+                $log_type = 'exit';
+                $time_in_display = date('g:i A', strtotime($pass['time_in']));
+                $time_out_display = date('g:i A', strtotime($now));
+                
+                $conn->query("UPDATE visitors SET time_out = '$now', status = 'used' WHERE id = '$visitor_id'");
+            } else {
+                // Subsequent scans: Already finished
+                $action_type = 'PASS ALREADY USED';
+                $log_type = 'duplicate_scan';
+                $time_in_display = date('g:i A', strtotime($pass['time_in']));
+                $time_out_display = date('g:i A', strtotime($pass['time_out']));
+            }
+
             $log_sql = "INSERT INTO access_logs (person_id, person_type, log_type, timestamp) 
-                        VALUES ('$visitor_id', 'visitor', 'entry', NOW())";
+                        VALUES ('$visitor_id', 'visitor', '$log_type', '$now')";
             $conn->query($log_sql);
 
             echo json_encode([
                 'success' => true,
+                'action_type' => $action_type,
                 'visitor_name' => $pass['visitor_name'],
                 'resident_name' => $pass['resident_name'],
-                'house_number' => $pass['house_number']
+                'house_number' => $pass['house_number'],
+                'message' => $pass['message'] ?? '',
+                'time_in' => $time_in_display,
+                'time_out' => $time_out_display
             ]);
         }
     } else {

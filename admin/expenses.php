@@ -18,7 +18,6 @@ if (isset($_POST['record_expense_btn'])) {
     $details = $conn->real_escape_string($_POST['details']);
     $expense_date = $conn->real_escape_string($_POST['expense_date']);
 
-    // Direct, clean insert now that our database 'created_at' column is active!
     $sql = "INSERT INTO cashflow (transaction_type, amount, details, created_at) 
             VALUES ('expense', $amount, '$details', '$expense_date 00:00:00')";
             
@@ -29,7 +28,26 @@ if (isset($_POST['record_expense_btn'])) {
     }
 }
 
-// ================= ACTION 2: PROCESS EXPENSE RECORD DELETION =================
+// ================= ACTION 2: PROCESS EXPENSE RECORD EDIT =================
+if (isset($_POST['update_expense_btn'])) {
+    $expense_id = intval($_POST['expense_id']);
+    $amount = floatval($_POST['amount']);
+    $details = $conn->real_escape_string($_POST['details']);
+    $expense_date = $conn->real_escape_string($_POST['expense_date']);
+
+    $sql = "UPDATE cashflow 
+            SET amount = $amount, details = '$details', created_at = '$expense_date 00:00:00' 
+            WHERE id = $expense_id AND transaction_type = 'expense'";
+            
+    if ($conn->query($sql)) {
+        header("Location: expenses.php?success=Expense record updated successfully.");
+        exit();
+    } else {
+        $error_msg = "Failed to update expense item: " . $conn->error;
+    }
+}
+
+// ================= ACTION 3: PROCESS EXPENSE RECORD DELETION =================
 if (isset($_GET['delete_expense_id'])) {
     $delete_id = intval($_GET['delete_expense_id']);
     
@@ -49,6 +67,14 @@ $total_outflow = $conn->query("SELECT SUM(amount) as total FROM cashflow WHERE t
 // 4. FETCH ALL RECORDED EXPENSES FOR THE LEDGER VIEW
 $ledger_query = "SELECT id, amount, details, created_at FROM cashflow WHERE transaction_type = 'expense' ORDER BY id DESC";
 $ledger_result = $conn->query($ledger_query);
+
+// Array storage to reuse records for edit modals
+$expenses_list = [];
+if ($ledger_result && $ledger_result->num_rows > 0) {
+    while ($row = $ledger_result->fetch_assoc()) {
+        $expenses_list[] = $row;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -56,7 +82,7 @@ $ledger_result = $conn->query($ledger_query);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ResiCured - Expense Management</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/theme/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
     <style>
@@ -105,9 +131,11 @@ $ledger_result = $conn->query($ledger_query);
         .custom-table th { background-color: #f8fafc; color: #718096; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e2e8f0; padding: 12px 16px; }
         .custom-table td { color: var(--text-dark); font-size: 14px; padding: 16px; vertical-align: middle; border-bottom: 1px solid #edf2f7; }
         
-        .action-link { padding: 6px 12px; border-radius: 6px; font-size: 13px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+        .action-link { padding: 6px 12px; border-radius: 6px; font-size: 13px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s ease; }
+        .btn-edit { background-color: #e0f2fe; color: #0284c7; }
+        .btn-edit:hover { background-color: #bae6fd; color: #0369a1; }
         .btn-delete { background-color: #fee2e2; color: #dc2626; }
-        .btn-delete:hover { background-color: #fca5a5; }
+        .btn-delete:hover { background-color: #fca5a5; color: #991b1b; }
 
         /* Pop-up Overlay CSS Engine */
         .custom-modal-backdrop { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; background-color: rgba(30, 34, 41, 0.6) !important; z-index: 99999 !important; display: none; align-items: center; justify-content: center; padding: 20px; }
@@ -148,9 +176,9 @@ $ledger_result = $conn->query($ledger_query);
                 <li><a href="events.php" class="nav-link"><i class="fa fa-calendar-alt"></i> Events</a></li>
                 <li><a href="residents.php" class="nav-link"><i class="fa fa-users"></i> Residents</a></li>
                 <li><a href="face_registration.php" class="nav-link"><i class="fa fa-user-shield"></i> Personnel</a></li>
-                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests</a></li>
+                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests & Concerns</a></li>
                 <li><a href="billing.php" class="nav-link"><i class="fa fa-credit-card"></i> Billing</a></li>
-                <li><a href="expenses.php" class="nav-link"><i class="fa fa-money-bill-transfer"></i> Expenses</a></li>
+                <li><a href="expenses.php" class="nav-link active"><i class="fa fa-money-bill-transfer"></i> Expenses</a></li>
                 <li><a href="guards.php" class="nav-link"><i class="fa fa-user-lock"></i> Staff Guards</a></li>
             </ul>
         </div>
@@ -203,18 +231,21 @@ $ledger_result = $conn->query($ledger_query);
                         </tr>
                     </thead>
                     <tbody>
-                        <?php if ($ledger_result && $ledger_result->num_rows > 0): ?>
-                            <?php while($row = $ledger_result->fetch_assoc()): ?>
+                        <?php if (count($expenses_list) > 0): ?>
+                            <?php foreach ($expenses_list as $row): ?>
                                 <tr>
                                     <td><span class="badge bg-light text-secondary border px-2 py-1">EXP-<?php echo $row['id']; ?></span></td>
                                     <td><strong><?php echo htmlspecialchars($row['details']); ?></strong></td>
                                     <td><strong class="text-danger">₱<?php echo number_format($row['amount'], 2); ?></strong></td>
                                     <td class="text-secondary small"><?php echo date('M d, Y', strtotime($row['created_at'])); ?></td>
                                     <td class="text-end" style="padding-right:24px;">
-                                        <a href="expenses.php?delete_expense_id=<?php echo $row['id']; ?>" onclick="return confirm('Permanently delete this expense item entry? This will reverse the graph value calculations.');" class="action-link btn-delete"><i class="fa fa-trash-can"></i> Remove</a>
+                                        <div class="d-inline-flex gap-1">
+                                            <a href="#editExpenseModal_<?php echo $row['id']; ?>" class="action-link btn-edit"><i class="fa-solid fa-pen-to-square"></i> Edit</a>
+                                            <a href="expenses.php?delete_expense_id=<?php echo $row['id']; ?>" onclick="return confirm('Permanently delete this expense item entry? This will reverse the graph value calculations.');" class="action-link btn-delete"><i class="fa fa-trash-can"></i> Remove</a>
+                                        </div>
                                     </td>
                                 </tr>
-                            <?php endwhile; ?>
+                            <?php endforeach; ?>
                         <?php else: ?>
                             <tr><td colspan="5" class="text-center py-5 text-muted"><i class="fa-solid fa-receipt d-block mb-2 fs-3 text-secondary"></i>No operational expense outlays have been logged yet.</td></tr>
                         <?php endif; ?>
@@ -225,6 +256,7 @@ $ledger_result = $conn->query($ledger_query);
     </div>
 </div>
 
+<!-- LOG NEW EXPENSE MODAL -->
 <div id="recordExpenseModal" class="custom-modal-backdrop">
     <div class="custom-popup-window">
         <div class="popup-header">
@@ -262,6 +294,48 @@ $ledger_result = $conn->query($ledger_query);
         </form>
     </div>
 </div>
+
+<!-- EDIT EXPENSE MODALS GENERATION -->
+<?php foreach ($expenses_list as $row): ?>
+<div id="editExpenseModal_<?php echo $row['id']; ?>" class="custom-modal-backdrop">
+    <div class="custom-popup-window">
+        <div class="popup-header">
+            <h5 class="m-0 fw-bold text-dark" style="font-size:18px;"><i class="fa-solid fa-pen-to-square text-orange me-1.5"></i>Edit Expense Record (EXP-<?php echo $row['id']; ?>)</h5>
+            <a href="#" class="close-popup-btn">&times;</a>
+        </div>
+        <form action="expenses.php" method="POST">
+            <input type="hidden" name="expense_id" value="<?php echo $row['id']; ?>">
+            <div class="popup-body">
+                
+                <div class="modal-field-block">
+                    <label class="modal-field-label">Expense Description / Purpose</label>
+                    <input type="text" name="details" class="modal-input-item" required value="<?php echo htmlspecialchars($row['details']); ?>">
+                </div>
+                
+                <div class="modal-form-split-row">
+                    <div class="modal-form-column">
+                        <div class="modal-field-block" style="margin-bottom:0 !important;">
+                            <label class="modal-field-label">Amount Paid (PHP)</label>
+                            <input type="number" step="0.01" min="1" name="amount" class="modal-input-item" required value="<?php echo htmlspecialchars($row['amount']); ?>">
+                        </div>
+                    </div>
+                    <div class="modal-form-column">
+                        <div class="modal-field-block" style="margin-bottom:0 !important;">
+                            <label class="modal-field-label">Date of Payment</label>
+                            <input type="date" name="expense_date" class="modal-input-item" required value="<?php echo date('Y-m-d', strtotime($row['created_at'])); ?>">
+                        </div>
+                    </div>
+                </div>
+                
+            </div>
+            <div class="popup-footer">
+                <a href="#" class="btn-modal-cancel">Cancel</a>
+                <button type="submit" name="update_expense_btn" class="btn btn-orange btn-modal-save">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endforeach; ?>
 
 </body>
 </html>

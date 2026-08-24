@@ -54,16 +54,15 @@ if (isset($_POST['enroll_face_btn'])) {
             }
             
             if (!$has_error) {
-                // Main visual reference to store in the primary field path column
-                $primary_face_path = $saved_paths[0]; 
+                $all_faces_json = mysqli_real_escape_string($conn, json_encode($saved_paths)); 
                 
                 $sql = "INSERT INTO frequent_personnel (full_name, role_type, face_template_path, registered_vehicle_plate) 
-                        VALUES ('$full_name', '$person_type', '$primary_face_path', '$vehicle_plate')";
+                        VALUES ('$full_name', '$person_type', '$all_faces_json', '$vehicle_plate')";
                 
                 if ($conn->query($sql)) {
                     $success_msg = "Successfully registered $full_name with 4 biometric snapshots!";
                     
-                    // ================= REAL-TIME ENGINE SYNCHRONIZATION =================
+                    // REAL-TIME ENGINE SYNCHRONIZATION
                     $ch = curl_init('http://127.0.0.1:5000/api/retrain');
                     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
                     curl_setopt($ch, CURLOPT_POST, true);
@@ -105,15 +104,23 @@ if (isset($_POST['edit_personnel_btn'])) {
 if (isset($_POST['delete_personnel_btn'])) {
     $personnel_id = intval($_POST['personnel_id']);
 
-    // Retrieve file path to remove stored image file from storage if it exists
     $stmt = $conn->prepare("SELECT face_template_path FROM frequent_personnel WHERE id = ?");
     $stmt->bind_param("i", $personnel_id);
     $stmt->execute();
     $res = $stmt->get_result();
     
     if ($row = $res->fetch_assoc()) {
-        if (!empty($row['face_template_path']) && file_exists("../" . $row['face_template_path'])) {
-            @unlink("../" . $row['face_template_path']);
+        if (!empty($row['face_template_path'])) {
+            $decoded_paths = json_decode($row['face_template_path'], true);
+            if (is_array($decoded_paths)) {
+                foreach ($decoded_paths as $file_path) {
+                    if (file_exists("../" . $file_path)) {
+                        @unlink("../" . $file_path);
+                    }
+                }
+            } elseif (file_exists("../" . $row['face_template_path'])) {
+                @unlink("../" . $row['face_template_path']);
+            }
         }
     }
 
@@ -123,7 +130,6 @@ if (isset($_POST['delete_personnel_btn'])) {
     if ($del_stmt->execute()) {
         $success_msg = "Personnel profile deleted successfully.";
         
-        // Retrain facial engine after removal
         $ch = curl_init('http://127.0.0.1:5000/api/retrain');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
@@ -135,7 +141,7 @@ if (isset($_POST['delete_personnel_btn'])) {
     }
 }
 
-// 1. FETCH RECENT FREQUENT PERSONNEL FOR THE ACTIVE MONITOR MATRIX
+// FETCH RECENT FREQUENT PERSONNEL
 $recent_registrations = [];
 $personnel_list = $conn->query("SELECT id, full_name, role_type, face_template_path, registered_vehicle_plate FROM frequent_personnel WHERE face_template_path IS NOT NULL ORDER BY id DESC LIMIT 10");
 
@@ -185,7 +191,6 @@ if ($personnel_list) {
         .camera-box { background: #1a202c; border-radius: 8px; overflow: hidden; position: relative; width: 100%; max-width: 340px; height: 255px; margin: 0 auto; border: 2px dashed #4a5568; }
         #webcamVideo { width: 100%; height: 100%; object-fit: cover; }
         
-        /* Multi-frame grid arrays */
         .quad-preview-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 340px; margin: 12px auto 0 auto; }
         .quad-box { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 6px; overflow: hidden; position: relative; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 11px; font-weight: 600; }
         .quad-box img { width: 100%; height: 100%; object-fit: cover; display: none; }
@@ -208,8 +213,8 @@ if ($personnel_list) {
                 <li><a href="dashboard.php" class="nav-link"><i class="fa fa-chart-pie"></i> Dashboard</a></li>
                 <li><a href="events.php" class="nav-link"><i class="fa fa-calendar-alt"></i> Events</a></li>
                 <li><a href="residents.php" class="nav-link"><i class="fa fa-users"></i> Residents</a></li>
-                <li><a href="face_registration.php" class="nav-link"><i class="fa fa-user-shield"></i> Personnel</a></li>
-                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests</a></li>
+                <li><a href="face_registration.php" class="nav-link active "><i class="fa fa-user-shield"></i> Personnel</a></li>
+                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests & Concerns</a></li>
                 <li><a href="billing.php" class="nav-link"><i class="fa fa-credit-card"></i> Billing</a></li>
                 <li><a href="expenses.php" class="nav-link"><i class="fa fa-money-bill-transfer"></i> Expenses</a></li>
                 <li><a href="guards.php" class="nav-link"><i class="fa fa-user-lock"></i> Staff Guards</a></li>
@@ -221,7 +226,7 @@ if ($personnel_list) {
     <div class="main-content">
         <div class="pb-3 mb-4 border-bottom">
             <h1 class="h3 fw-bold text-dark mb-1">External Personnel Registration</h1>
-            <p class="text-muted small mb-0">Capture 4 unique spatial angles to establish highly dependable verification signatures.</p>
+            <p class="text-muted small mb-0">Capture 4 unique spatial angles in HD to establish highly dependable verification signatures.</p>
         </div>
 
         <?php if (!empty($success_msg)): ?>
@@ -268,12 +273,13 @@ if ($personnel_list) {
                         <div class="mb-3 text-center">
                             <div class="d-flex justify-content-between align-items-center mb-1">
                                 <label class="form-label fw-semibold text-secondary small mb-0">Registration Frames</label>
-                                <span class="badge bg-dark text-white tiny-label" id="captureProgressTracker">0 / 4 Captured</span>
+                                <span class="badge bg-dark text-white tiny-label" id="captureProgressTracker">Angle 1: Look Front</span>
                             </div>
                             
                             <div class="camera-box mb-2">
                                 <video id="webcamVideo" autoplay playsinline muted></video>
-                                <canvas id="processingCanvas" width="640" height="480" style="display:none;"></canvas>
+                                <!-- Canvas scaled to HD (1280x720) for zero detail degradation -->
+                                <canvas id="processingCanvas" width="1280" height="720" style="display:none;"></canvas>
                             </div>
                             
                             <div class="quad-preview-container">
@@ -311,31 +317,31 @@ if ($personnel_list) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach ($recent_registrations as $reg): ?>
+                                    <?php foreach ($recent_registrations as $reg): 
+                                        $parsed_paths = json_decode($reg['face_template_path'], true);
+                                        $primary_img = is_array($parsed_paths) ? $parsed_paths[0] : $reg['face_template_path'];
+                                    ?>
                                         <tr>
                                             <td>
-                                                <img src="../<?php echo htmlspecialchars($reg['face_template_path']); ?>" class="thumbnail-preview" alt="Visitor Face Image">
+                                                <img src="../<?php echo htmlspecialchars($primary_img); ?>" class="thumbnail-preview" alt="Visitor Face Image">
                                             </td>
                                             <td class="fw-semibold text-dark small"><?php echo htmlspecialchars($reg['full_name']); ?></td>
                                             <td><span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2.5 py-1.5 small"><?php echo htmlspecialchars($reg['role_type']); ?></span></td>
                                             <td class="text-center"><span class="text-success fw-bold small"><i class="fa fa-circle-check me-1"></i> Monitored</span></td>
                                             <td class="text-center">
                                                 <div class="btn-group gap-1">
-                                                    <!-- View Button -->
                                                     <button type="button" class="btn btn-sm btn-outline-info action-btn" data-bs-toggle="modal" data-bs-target="#viewModal_<?php echo $reg['id']; ?>" title="View Details">
                                                         <i class="fa fa-eye"></i>
                                                     </button>
-                                                    <!-- Edit Button -->
                                                     <button type="button" class="btn btn-sm btn-outline-warning action-btn" data-bs-toggle="modal" data-bs-target="#editModal_<?php echo $reg['id']; ?>" title="Edit Personnel">
                                                         <i class="fa fa-pen"></i>
                                                     </button>
-                                                    <!-- Delete Button -->
                                                     <button type="button" class="btn btn-sm btn-outline-danger action-btn" data-bs-toggle="modal" data-bs-target="#deleteModal_<?php echo $reg['id']; ?>" title="Delete Personnel">
                                                         <i class="fa fa-trash"></i>
                                                     </button>
                                                 </div>
 
-                                                <!-- ================= VIEW MODAL ================= -->
+                                                <!-- VIEW MODAL -->
                                                 <div class="modal fade text-start" id="viewModal_<?php echo $reg['id']; ?>" tabindex="-1" aria-hidden="true">
                                                     <div class="modal-dialog modal-dialog-centered">
                                                         <div class="modal-content border-0 shadow-sm" style="border-radius:12px;">
@@ -344,7 +350,16 @@ if ($personnel_list) {
                                                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                                                             </div>
                                                             <div class="modal-body py-4 text-center">
-                                                                <img src="../<?php echo htmlspecialchars($reg['face_template_path']); ?>" class="rounded-circle shadow-sm border mb-3" style="width:110px; height:110px; object-fit:cover;" alt="Face Photo">
+                                                                <img src="../<?php echo htmlspecialchars($primary_img); ?>" class="rounded-circle shadow-sm border mb-3" style="width:110px; height:110px; object-fit:cover;" alt="Face Photo">
+                                                                
+                                                                <?php if (is_array($parsed_paths) && count($parsed_paths) > 1): ?>
+                                                                    <div class="d-flex justify-content-center gap-2 mb-3">
+                                                                        <?php foreach ($parsed_paths as $idx => $p): ?>
+                                                                            <img src="../<?php echo htmlspecialchars($p); ?>" class="rounded border shadow-sm" style="width:50px; height:50px; object-fit:cover;" title="Snapshot <?php echo $idx + 1; ?>">
+                                                                        <?php endforeach; ?>
+                                                                    </div>
+                                                                <?php endif; ?>
+
                                                                 <h5 class="fw-bold text-dark mb-1"><?php echo htmlspecialchars($reg['full_name']); ?></h5>
                                                                 <p class="mb-3"><span class="badge bg-warning bg-opacity-10 text-dark border border-warning px-3 py-1"><?php echo htmlspecialchars($reg['role_type']); ?></span></p>
                                                                 
@@ -354,6 +369,8 @@ if ($personnel_list) {
                                                                         <div class="col-7 text-dark fw-bold">#<?php echo $reg['id']; ?></div>
                                                                         <div class="col-5 text-secondary fw-semibold">Vehicle Plate:</div>
                                                                         <div class="col-7 text-dark fw-bold"><?php echo !empty($reg['registered_vehicle_plate']) ? htmlspecialchars($reg['registered_vehicle_plate']) : 'N/A'; ?></div>
+                                                                        <div class="col-5 text-secondary fw-semibold">Biometric Snapshots:</div>
+                                                                        <div class="col-7 text-dark fw-bold"><?php echo is_array($parsed_paths) ? count($parsed_paths) : '1'; ?> Saved</div>
                                                                         <div class="col-5 text-secondary fw-semibold">Biometric Status:</div>
                                                                         <div class="col-7 text-success fw-bold"><i class="fa fa-check-circle me-1"></i> Active & Synced</div>
                                                                     </div>
@@ -366,7 +383,7 @@ if ($personnel_list) {
                                                     </div>
                                                 </div>
 
-                                                <!-- ================= EDIT MODAL ================= -->
+                                                <!-- EDIT MODAL -->
                                                 <div class="modal fade text-start" id="editModal_<?php echo $reg['id']; ?>" tabindex="-1" aria-hidden="true">
                                                     <div class="modal-dialog modal-dialog-centered">
                                                         <div class="modal-content border-0 shadow-sm" style="border-radius:12px;">
@@ -405,7 +422,7 @@ if ($personnel_list) {
                                                     </div>
                                                 </div>
 
-                                                <!-- ================= DELETE MODAL ================= -->
+                                                <!-- DELETE MODAL -->
                                                 <div class="modal fade text-start" id="deleteModal_<?php echo $reg['id']; ?>" tabindex="-1" aria-hidden="true">
                                                     <div class="modal-dialog modal-dialog-centered">
                                                         <div class="modal-content border-0 shadow-sm" style="border-radius:12px;">
@@ -449,7 +466,6 @@ if ($personnel_list) {
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function() {
-    // Classification Logic Observers
     const classSelect = document.getElementById('profileClassificationSelect');
     const nameLabel = document.getElementById('dynamicNameLabel');
     const customWrapper = document.getElementById('wrapperCustomClassification');
@@ -472,7 +488,6 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     });
 
-    // Multi-Angle Core Camera Mechanics
     const video = document.getElementById('webcamVideo');
     const canvas = document.getElementById('processingCanvas');
     const startBtn = document.getElementById('startCamBtn');
@@ -484,18 +499,33 @@ document.addEventListener("DOMContentLoaded", function() {
 
     let capturedFrames = [];
     const totalRequiredFrames = 4;
+    
+    // Dynamic posture guidance prompts
+    const anglePrompts = [
+        "Angle 1: Look Front",
+        "Angle 2: Turn Head 30° Left",
+        "Angle 3: Turn Head 30° Right",
+        "Angle 4: Tilt Head Upwards"
+    ];
 
     startBtn.addEventListener('click', async function() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+            // STEP 1: Request HD stream (1280x720)
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: { ideal: 1280 }, height: { ideal: 720 } }, 
+                audio: false 
+            });
             video.srcObject = stream;
             snapBtn.disabled = false;
             
-            // Reset state fields if running it back a second time
+            // Set canvas size to match HD standard
+            canvas.width = 1280;
+            canvas.height = 720;
+            
             capturedFrames = [];
             hiddenJsonField.value = "";
             submitBtn.disabled = true;
-            tracker.innerText = "0 / 4 Captured";
+            tracker.innerText = anglePrompts[0];
             tracker.className = "badge bg-dark text-white tiny-label";
             
             for(let i=0; i<totalRequiredFrames; i++) {
@@ -514,30 +544,27 @@ document.addEventListener("DOMContentLoaded", function() {
     snapBtn.addEventListener('click', function() {
         if (capturedFrames.length >= totalRequiredFrames) return;
 
-        // Freeze frame snapshot data context
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const base64Data = canvas.toDataURL('image/jpeg', 0.85);
+        
+        // STEP 1: Set quality to 1.0 (Maximum JPEG quality, zero loss)
+        const base64Data = canvas.toDataURL('image/jpeg', 1.0);
         
         const dynamicSlotIndex = capturedFrames.length;
         capturedFrames.push(base64Data);
         
-        // Render preview context frame visually in real time 
         const activeBox = document.getElementById(`slot_${dynamicSlotIndex}`);
         activeBox.innerHTML = `<img src="${base64Data}" style="display:block;">`;
         activeBox.classList.remove('active-slot');
-        
-        tracker.innerText = `${capturedFrames.length} / 4 Captured`;
 
         if (capturedFrames.length < totalRequiredFrames) {
-            // Forward pointer highlights to the next open box array spot
             document.getElementById(`slot_${capturedFrames.length}`).classList.add('active-slot');
+            tracker.innerText = anglePrompts[capturedFrames.length];
         } else {
-            // Bundle up everything as a structural JSON array string
             hiddenJsonField.value = JSON.stringify(capturedFrames);
             snapBtn.disabled = true;
             submitBtn.disabled = false;
+            tracker.innerText = "All 4 HD Angles Mapped!";
             tracker.className = "badge bg-success text-white tiny-label";
-            alert("All 4 facial profiles successfully mapped! Ready to save registry.");
         }
     });
 });

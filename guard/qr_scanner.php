@@ -29,6 +29,7 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
         #qr-reader { border: none !important; width: 100% !important; }
         #qr-reader__dashboard_section_csr button, .btn-custom-orange { background-color: var(--subdivision-orange) !important; color: white !important; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; }
         .timestamp-box { background: #f1f5f9; border-radius: 8px; padding: 10px 14px; border: 1px solid #e2e8f0; }
+        .message-box { background: #fff8f0; border-left: 4px solid var(--subdivision-orange); padding: 10px 14px; border-radius: 4px; }
     </style>
 </head>
 <body>
@@ -81,6 +82,14 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
 
                         <p class="mb-2"><strong>Visitor Name:</strong> <br><span id="lblVerifiedName" class="fw-bold text-dark fs-5">-</span></p>
                         <p class="mb-3"><strong>Host Destination Assignment:</strong> <br><span id="lblVerifiedDest" class="text-muted small">-</span></p>
+
+                        <!-- RESIDENT MESSAGE POPUP DISPLAY -->
+                        <div class="mb-3">
+                            <strong class="small text-muted d-block mb-1"><i class="fa-solid fa-comment-dots me-1 text-warning"></i> Resident Note / Message:</strong>
+                            <div class="message-box">
+                                <span id="lblVerifiedMessage" class="small text-dark fst-italic">No additional message provided.</span>
+                            </div>
+                        </div>
 
                         <!-- TIMESTAMPS DISPLAY -->
                         <div class="row g-2">
@@ -139,18 +148,22 @@ document.addEventListener("DOMContentLoaded", function() {
             if(data.success) {
                 showFeedback(`Access Recorded: ${data.action_type} successfully logged.`, "success");
                 
-                // Populate Visitor Details
+                // Populate Visitor Details & Resident Note
                 document.getElementById('lblVerifiedName').textContent = data.visitor_name;
                 document.getElementById('lblVerifiedDest').textContent = `House No. ${data.house_number} (Resident Host: ${data.resident_name})`;
+                document.getElementById('lblVerifiedMessage').textContent = (data.message && data.message.trim() !== "") ? data.message : "No additional message provided.";
                 
                 // Update Movement Status & Timestamps
                 const actionBadge = document.getElementById('lblActionType');
                 if (data.action_type === 'TIME IN') {
                     actionBadge.className = 'badge bg-success fs-6 px-3 py-2';
                     actionBadge.textContent = 'ENTRY LOGGED (TIME IN)';
-                } else {
+                } else if (data.action_type === 'TIME OUT') {
                     actionBadge.className = 'badge bg-danger fs-6 px-3 py-2';
                     actionBadge.textContent = 'EXIT LOGGED (TIME OUT)';
+                } else {
+                    actionBadge.className = 'badge bg-secondary fs-6 px-3 py-2';
+                    actionBadge.textContent = 'PASS ALREADY USED';
                 }
 
                 document.getElementById('lblTimeIn').textContent = data.time_in ? data.time_in : '-';
@@ -160,7 +173,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 document.getElementById('emptyDataBox').classList.add('d-none');
                 new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav').play().catch(()=>{});
                 
-                setTimeout(() => { location.reload(); }, 4000);
+                setTimeout(() => { isProcessing = false; }, 5000);
             } else {
                 showFeedback(data.message, "danger");
                 document.getElementById('clearanceDataBox').classList.add('d-none');

@@ -23,12 +23,13 @@ $resident_profile_id = $resident['id'] ?? 0;
 if (isset($_POST['generate_pass_btn'])) {
     $visitor_name = $conn->real_escape_string($_POST['visitor_name']);
     $visit_date = $conn->real_escape_string($_POST['visit_date']);
+    $message = $conn->real_escape_string($_POST['message'] ?? '');
     
     // Create a uniquely encrypted cryptographic token for the QR code representation
     $qr_token = "RES-" . $resident_profile_id . "-" . time() . "-" . rand(1000, 9999);
 
-    $sql = "INSERT INTO visitors (resident_id, visitor_name, qr_code_token, visit_date, status) 
-            VALUES ('$resident_user_id', '$visitor_name', '$qr_token', '$visit_date', 'approved')";
+    $sql = "INSERT INTO visitors (resident_id, visitor_name, qr_code_token, visit_date, message, status) 
+            VALUES ('$resident_user_id', '$visitor_name', '$qr_token', '$visit_date', '$message', 'approved')";
             
     if ($conn->query($sql)) {
         $success_msg = "Visitor pass authorized! Send this secure token code to your visitor: <strong>$qr_token</strong>";
@@ -124,7 +125,7 @@ $events_result = $conn->query("SELECT title, description, event_date, location F
             <ul class="sidebar-menu mt-3">
                 <li><a href="dashboard.php" class="nav-link active"><i class="fa fa-chart-pie"></i> My Dashboard</a></li>
                 <li><a href="#requestPassModal" class="nav-link"><i class="fa fa-qrcode"></i> Create QR Pass</a></li>
-                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-invoice"></i> File Request</a></li>
+                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-invoice"></i> File Request & Concern</a></li>
                 <li><a href="resident_billing.php" class="nav-link"><i class="fa fa-credit-card"></i> My Billings</a></li>
             </ul>
         </div>
@@ -279,9 +280,13 @@ $events_result = $conn->query("SELECT title, description, event_date, location F
                     <label class="form-label">Visitor / Guest Full Name</label>
                     <input type="text" name="visitor_name" id="visitor_name_field" class="form-control" required placeholder="e.g., Maria Santos">
                 </div>
-                <div class="mb-2">
+                <div class="mb-3">
                     <label class="form-label">Scheduled Arrival Date</label>
                     <input type="date" name="visit_date" id="visit_date_field" class="form-control" required value="<?php echo date('Y-m-d'); ?>">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Additional Message / Note <span class="text-muted fw-normal fs-7">(Optional)</span></label>
+                    <textarea name="message" id="message_field" class="form-control" rows="3" placeholder="e.g., Delivering packages, guest of household, etc."></textarea>
                 </div>
             </div>
             <div class="popup-footer">

@@ -67,7 +67,7 @@ $billings_result = $conn->query($billings_query);
             <ul class="sidebar-menu mt-3">
                 <li><a href="dashboard.php" class="nav-link"><i class="fa fa-chart-pie"></i> My Dashboard</a></li>
                 <li><a href="dashboard.php#requestPassModal" class="nav-link"><i class="fa fa-qrcode"></i> Create QR Pass</a></li>
-                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-invoice"></i> File Request</a></li>
+                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-invoice"></i> File Request & Concern</a></li>
                 <li><a href="resident_billing.php" class="nav-link active"><i class="fa fa-credit-card"></i> My Billings</a></li>
             </ul>
         </div>

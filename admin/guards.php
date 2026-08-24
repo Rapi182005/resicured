@@ -38,10 +38,17 @@ function saveBase64Image($base64_string, $output_dir, $suffix = "") {
 if (isset($_POST['add_guard_btn'])) {
     $username = trim($conn->real_escape_string($_POST['username']));
     $email = trim($conn->real_escape_string($_POST['email']));
+    $phone = trim($conn->real_escape_string($_POST['phone']));
     $raw_password = trim($_POST['password']);
+    $confirm_password = trim($_POST['confirm_password']);
 
     $conn->begin_transaction();
     try {
+        // Enforce password confirmation match
+        if ($raw_password !== $confirm_password) {
+            throw new Exception("Passwords do not match. Please re-enter identical passwords.");
+        }
+
         // Enforce uniqueness constraints before inserting
         $check_user = $conn->query("SELECT id FROM users WHERE username='$username' OR email='$email'");
         if ($check_user && $check_user->num_rows > 0) { 
@@ -59,7 +66,7 @@ if (isset($_POST['add_guard_btn'])) {
         if (!empty($_POST['captured_image_1']) && !empty($_POST['captured_image_2']) && 
             !empty($_POST['captured_image_3']) && !empty($_POST['captured_image_4'])) {
             
-            // Save all 4 photo samples for facial recognition training/dataset
+            // Save all 4 photo samples
             $img1 = saveBase64Image($_POST['captured_image_1'], $upload_dir, "sample1");
             $img2 = saveBase64Image($_POST['captured_image_2'], $upload_dir, "sample2");
             $img3 = saveBase64Image($_POST['captured_image_3'], $upload_dir, "sample3");
@@ -77,8 +84,8 @@ if (isset($_POST['add_guard_btn'])) {
         // Hash system entry password
         $hashed_password = password_hash($raw_password, PASSWORD_BCRYPT);
 
-        // Insert into core users ledger with primary image path and role = 'guard'
-        $conn->query("INSERT INTO users (username, password, email, role, image) VALUES ('$username', '$hashed_password', '$email', 'guard', '$primary_image')");
+        // Insert into database
+        $conn->query("INSERT INTO users (username, password, email, phone, role, image) VALUES ('$username', '$hashed_password', '$email', '$phone', 'guard', '$primary_image')");
 
         $conn->commit();
         $success_msg = "Security Guard account & 4 face recognition samples provisioned successfully!";
@@ -109,10 +116,17 @@ if (isset($_POST['edit_guard_btn'])) {
     $guard_id = intval($_POST['guard_id']);
     $username = trim($conn->real_escape_string($_POST['username']));
     $email = trim($conn->real_escape_string($_POST['email']));
+    $phone = trim($conn->real_escape_string($_POST['phone']));
     $new_password = trim($_POST['password']);
+    $confirm_password = trim($_POST['confirm_password']);
 
     $conn->begin_transaction();
     try {
+        // Enforce password confirmation match if updated
+        if (!empty($new_password) && ($new_password !== $confirm_password)) {
+            throw new Exception("New passwords do not match. Please re-enter identical passwords.");
+        }
+
         // Ensure username or email is not taken by another user
         $check_user = $conn->query("SELECT id FROM users WHERE (username='$username' OR email='$email') AND id != $guard_id");
         if ($check_user && $check_user->num_rows > 0) { 
@@ -139,9 +153,9 @@ if (isset($_POST['edit_guard_btn'])) {
         // Update with or without new password
         if (!empty($new_password)) {
             $hashed_password = password_hash($new_password, PASSWORD_BCRYPT);
-            $conn->query("UPDATE users SET username='$username', email='$email', password='$hashed_password' $image_update_sql WHERE id=$guard_id AND role='guard'");
+            $conn->query("UPDATE users SET username='$username', email='$email', phone='$phone', password='$hashed_password' $image_update_sql WHERE id=$guard_id AND role='guard'");
         } else {
-            $conn->query("UPDATE users SET username='$username', email='$email' $image_update_sql WHERE id=$guard_id AND role='guard'");
+            $conn->query("UPDATE users SET username='$username', email='$email', phone='$phone' $image_update_sql WHERE id=$guard_id AND role='guard'");
         }
 
         $conn->commit();
@@ -156,8 +170,8 @@ if (isset($_GET['success'])) {
     $success_msg = $_GET['success']; 
 }
 
-// 4. FETCH ALL ACTIVE SECURITY GUARDS CURRENTLY PROVISIONED ON NETWORK
-$guards_result = $conn->query("SELECT id, username, email, image, created_at FROM users WHERE role = 'guard' ORDER BY id DESC");
+// FETCH ALL ACTIVE SECURITY GUARDS CURRENTLY PROVISIONED ON NETWORK
+$guards_result = $conn->query("SELECT id, username, email, phone, image, created_at FROM users WHERE role = 'guard' ORDER BY id DESC");
 $guards = [];
 if ($guards_result && $guards_result->num_rows > 0) {
     while ($row = $guards_result->fetch_assoc()) {
@@ -347,6 +361,7 @@ if ($guards_result && $guards_result->num_rows > 0) {
 
         .form-control { 
             font-size: 14px; 
+            border-radius: 6px;
         }
         .form-control:focus { 
             border-color: var(--subdivision-orange); 
@@ -354,10 +369,24 @@ if ($guards_result && $guards_result->num_rows > 0) {
         }
         .form-label { 
             display: block; 
-            margin-bottom: 6px; 
+            margin-bottom: 4px; 
             font-size: 13px; 
             color: #4a5568; 
-            font-weight: 500; 
+            font-weight: 600; 
+        }
+
+        .toggle-password-btn {
+            background-color: #ffffff;
+            border: 1px solid #ced4da;
+            border-left: none;
+            color: #6c757d;
+            transition: all 0.2s ease;
+            border-top-right-radius: 6px;
+            border-bottom-right-radius: 6px;
+        }
+        .toggle-password-btn:hover {
+            background-color: #f1f5f9;
+            color: var(--subdivision-orange);
         }
         
         .action-link { 
@@ -381,40 +410,50 @@ if ($guards_result && $guards_result->num_rows > 0) {
         .btn-delete-link { background-color: #fee2e2; color: #dc2626; }
         .btn-delete-link:hover { background-color: #fca5a5; }
 
-        /* FIXED MODAL OVERFLOW & CUTOFF BUTTONS */
+        /* FIXED MODAL ALIGNMENT & RESPONSIVE FLEX CONTAINER */
         .custom-modal-backdrop { 
             position: fixed !important; 
             top: 0 !important; 
             left: 0 !important; 
             right: 0 !important; 
             bottom: 0 !important; 
-            background-color: rgba(30, 34, 41, 0.6) !important; 
+            background-color: rgba(15, 23, 42, 0.6) !important; 
             z-index: 99999 !important; 
             display: none; 
             align-items: center; 
             justify-content: center; 
-            padding: 15px; 
+            padding: 20px; 
         }
         .custom-modal-backdrop:target { display: flex !important; }
+        
         .custom-popup-window { 
             background-color: #ffffff !important; 
             width: 100% !important; 
             max-width: 520px !important; 
-            max-height: 90vh !important; 
-            border-radius: 14px !important; 
-            box-shadow: 0 15px 35px rgba(0,0,0,0.25) !important; 
-            overflow: hidden; 
+            max-height: 88vh !important; 
+            border-radius: 12px !important; 
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important; 
             display: flex !important;
             flex-direction: column !important;
+            overflow: hidden !important;
             animation: popIn 0.2s ease-out; 
         }
+        
+        .modal-form-wrapper {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+            margin: 0;
+        }
+
         .popup-header { 
             flex-shrink: 0;
             display: flex; 
             align-items: center; 
             justify-content: space-between; 
             padding: 16px 20px; 
-            border-bottom: 1px solid #edf2f7; 
+            border-bottom: 1px solid #e2e8f0; 
             background-color: #ffffff;
         }
         .popup-body { 
@@ -427,19 +466,21 @@ if ($guards_result && $guards_result->num_rows > 0) {
             flex-shrink: 0;
             padding: 14px 20px; 
             background-color: #f8fafc; 
-            border-top: 1px solid #edf2f7; 
+            border-top: 1px solid #e2e8f0; 
             display: flex; 
             justify-content: flex-end; 
             gap: 10px; 
         }
-        .close-popup-btn { text-decoration: none; color: #a0aec0; font-size: 22px; font-weight: bold; line-height: 1; }
-        @keyframes popIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .close-popup-btn { text-decoration: none; color: #94a3b8; font-size: 22px; font-weight: bold; line-height: 1; }
+        .close-popup-btn:hover { color: #475569; }
 
-        /* Camera Viewport & 4-Photo Matrix Grid */
+        @keyframes popIn { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        /* Camera Viewport & Compact 4-Photo Matrix Grid */
         .camera-viewport {
             width: 100%;
-            height: 180px;
-            background-color: #1a202c;
+            height: 190px;
+            background-color: #0f172a;
             border-radius: 8px;
             overflow: hidden;
             position: relative;
@@ -457,16 +498,15 @@ if ($guards_result && $guards_result->num_rows > 0) {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 8px;
-            margin-top: 10px;
+            margin-top: 8px;
         }
         .photo-slot {
             width: 100%;
-            height: 65px;
+            height: 55px;
             border: 2px dashed #cbd5e1;
             border-radius: 6px;
             background-color: #f8fafc;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
             overflow: hidden;
@@ -478,7 +518,7 @@ if ($guards_result && $guards_result->num_rows > 0) {
             object-fit: cover;
         }
         .photo-slot-label {
-            font-size: 10px;
+            font-size: 11px;
             font-weight: 700;
             color: #94a3b8;
         }
@@ -507,10 +547,10 @@ if ($guards_result && $guards_result->num_rows > 0) {
                 <li><a href="events.php" class="nav-link"><i class="fa fa-calendar-alt"></i> Events</a></li>
                 <li><a href="residents.php" class="nav-link"><i class="fa fa-users"></i> Residents</a></li>
                 <li><a href="face_registration.php" class="nav-link"><i class="fa fa-user-shield"></i> Personnel</a></li>
-                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests</a></li>
+                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests & Concerns</a></li>
                 <li><a href="billing.php" class="nav-link"><i class="fa fa-credit-card"></i> Billing</a></li>
                 <li><a href="expenses.php" class="nav-link"><i class="fa fa-money-bill-transfer"></i> Expenses</a></li>
-                <li><a href="guards.php" class="nav-link"><i class="fa fa-user-lock"></i> Staff Guards</a></li>
+                <li><a href="guards.php" class="nav-link active"><i class="fa fa-user-lock"></i> Staff Guards</a></li>
             </ul>
         </div>
         <div class="logout-btn-container">
@@ -552,6 +592,7 @@ if ($guards_result && $guards_result->num_rows > 0) {
                             <th>Account Terminal User ID</th>
                             <th>Station Login Username</th>
                             <th>Email Address</th>
+                            <th>Phone Number</th>
                             <th>Date Provisioned</th>
                             <th class="text-end" style="padding-right:24px;">Action Controls</th>
                         </tr>
@@ -571,6 +612,7 @@ if ($guards_result && $guards_result->num_rows > 0) {
                                     <td><span class="badge bg-light text-secondary border px-2.5 py-1.5 fw-bold">GUARD-0<?php echo $row['id']; ?></span></td>
                                     <td><strong class="text-dark"><i class="fa fa-shield me-1.5 text-secondary" style="font-size:12px;"></i><?php echo htmlspecialchars($row['username']); ?></strong></td>
                                     <td class="text-secondary"><?php echo htmlspecialchars($row['email']); ?></td>
+                                    <td class="text-secondary"><?php echo !empty($row['phone']) ? htmlspecialchars($row['phone']) : '<span class="text-muted fst-italic">N/A</span>'; ?></td>
                                     <td class="text-muted small"><?php echo date('M d, Y, g:i A', strtotime($row['created_at'])); ?></td>
                                     <td class="text-end" style="padding-right:24px;">
                                         <div class="d-inline-flex gap-1">
@@ -583,7 +625,7 @@ if ($guards_result && $guards_result->num_rows > 0) {
                             <?php endforeach; ?>
                         <?php else: ?>
                             <tr>
-                                <td colspan="6" class="text-center py-5 text-muted">
+                                <td colspan="7" class="text-center py-5 text-muted">
                                     <i class="fa-solid fa-user-shield d-block mb-2 fs-3 text-secondary"></i>No customized security guard terminal nodes found active on the network framework.
                                 </td>
                             </tr>
@@ -595,20 +637,25 @@ if ($guards_result && $guards_result->num_rows > 0) {
     </div>
 </div>
 
-<!-- ================= PROVISION GUARD MODAL WITH 4-PHOTO FACE RECOGNITION ================= -->
+<!-- ================= PROVISION GUARD MODAL WITH PROPER SCROLLING & ALIGNMENT ================= -->
 <div id="provisionGuardModal" class="custom-modal-backdrop">
     <div class="custom-popup-window">
-        <div class="popup-header">
-            <h5 class="m-0 fw-bold text-dark" style="font-size:17px;"><i class="fa-solid fa-camera text-orange me-1.5"></i>Provision Security Guard Account</h5>
-            <a href="#" class="close-popup-btn" onclick="stopAllCameras()">&times;</a>
-        </div>
-        <form action="guards.php" method="POST" onsubmit="return validateCameraSubmission('add')">
+        <form action="guards.php" method="POST" onsubmit="return validateCameraSubmission('add')" class="modal-form-wrapper">
+            
+            <div class="popup-header">
+                <h5 class="m-0 fw-bold text-dark d-flex align-items-center gap-2" style="font-size:16px;">
+                    <i class="fa-solid fa-camera text-warning"></i>
+                    <span>Provision Security Guard Account</span>
+                </h5>
+                <a href="#" class="close-popup-btn" onclick="stopAllCameras()">&times;</a>
+            </div>
+
             <div class="popup-body">
                 
                 <!-- Live Camera Feed Container -->
                 <div class="mb-3">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <label class="form-label fw-bold m-0">Face Recognition Scan (4 Photos) <span class="text-danger">*</span></label>
+                    <div class="d-flex justify-content-between align-items-center mb-1.5">
+                        <label class="form-label m-0">Face Recognition Scan (4 Photos) <span class="text-danger">*</span></label>
                         <span id="add_status_badge" class="badge bg-warning text-dark">Captured: 0 / 4</span>
                     </div>
 
@@ -634,37 +681,63 @@ if ($guards_result && $guards_result->num_rows > 0) {
                     </div>
 
                     <div class="d-flex justify-content-center gap-2 mb-1">
-                        <button type="button" id="snap_add_cam_btn" onclick="takeSnapshot('add')" class="btn btn-sm btn-orange w-100 py-1.5"><i class="fa fa-camera me-1"></i> Capture Photo (<span id="add_snap_num">1</span>/4)</button>
-                        <button type="button" id="retake_add_cam_btn" onclick="resetSnapshots('add')" class="btn btn-sm btn-secondary text-dark" style="display:none;"><i class="fa fa-rotate-right me-1"></i> Retake All</button>
+                        <button type="button" id="snap_add_cam_btn" onclick="takeSnapshot('add')" class="btn btn-sm btn-orange w-100 py-2">
+                            <i class="fa fa-camera me-1.5"></i> Capture Photo (<span id="add_snap_num">1</span>/4)
+                        </button>
+                        <button type="button" id="retake_add_cam_btn" onclick="resetSnapshots('add')" class="btn btn-sm btn-secondary text-dark" style="display:none;">
+                            <i class="fa fa-rotate-right me-1"></i> Retake All
+                        </button>
                     </div>
 
-                    <!-- 4 Hidden Inputs -->
+                    <!-- Hidden Inputs -->
                     <input type="hidden" name="captured_image_1" id="add_guard_image_1">
                     <input type="hidden" name="captured_image_2" id="add_guard_image_2">
                     <input type="hidden" name="captured_image_3" id="add_guard_image_3">
                     <input type="hidden" name="captured_image_4" id="add_guard_image_4">
                 </div>
 
-                <div class="mb-2.5">
+                <div class="mb-3">
                     <label class="form-label">Station Login Username Handle</label>
                     <input type="text" name="username" class="form-control p-2" required placeholder="e.g., guard_alpha">
                 </div>
 
-                <div class="mb-2.5">
+                <div class="mb-3">
                     <label class="form-label">Corporate Email Address</label>
                     <input type="email" name="email" class="form-control p-2" required placeholder="e.g., alpha_gate@resicured.com">
                 </div>
 
-                <div class="mb-1">
+                <div class="mb-3">
+                    <label class="form-label">Phone Number</label>
+                    <input type="tel" name="phone" class="form-control p-2" placeholder="e.g., +63 912 345 6789">
+                </div>
+
+                <div class="mb-3">
                     <label class="form-label">Access Terminal Password</label>
-                    <input type="password" name="password" class="form-control p-2" required placeholder="Enter terminal password">
+                    <div class="input-group">
+                        <input type="password" name="password" id="add_guard_password" class="form-control p-2" required placeholder="Enter terminal password">
+                        <button class="btn toggle-password-btn" type="button" onclick="togglePasswordVisibility('add_guard_password', 'add_eye_icon_1')">
+                            <i class="fa fa-eye" id="add_eye_icon_1"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label">Enter Password Again</label>
+                    <div class="input-group">
+                        <input type="password" name="confirm_password" id="add_guard_confirm_password" class="form-control p-2" required placeholder="Re-enter terminal password">
+                        <button class="btn toggle-password-btn" type="button" onclick="togglePasswordVisibility('add_guard_confirm_password', 'add_eye_icon_2')">
+                            <i class="fa fa-eye" id="add_eye_icon_2"></i>
+                        </button>
+                    </div>
                 </div>
 
             </div>
+            
             <div class="popup-footer">
                 <a href="#" class="btn btn-secondary btn-sm px-3 py-2 text-dark" onclick="stopAllCameras()" style="text-decoration:none; background-color:#edf2f7; border:1px solid #cbd5e1;">Cancel</a>
                 <button type="submit" name="add_guard_btn" id="add_submit_btn" class="btn btn-orange btn-sm px-4 py-2" disabled>Provision Account</button>
             </div>
+            
         </form>
     </div>
 </div>
@@ -682,8 +755,9 @@ if ($guards_result && $guards_result->num_rows > 0) {
     <div id="viewGuardModal_<?php echo $row['id']; ?>" class="custom-modal-backdrop">
         <div class="custom-popup-window">
             <div class="popup-header">
-                <h5 class="m-0 fw-bold text-dark" style="font-size:17px;">
-                    <i class="fa-solid fa-id-card text-primary me-2"></i>Guard Profile Card
+                <h5 class="m-0 fw-bold text-dark d-flex align-items-center gap-2" style="font-size:16px;">
+                    <i class="fa-solid fa-id-card text-primary"></i>
+                    <span>Guard Profile Card</span>
                 </h5>
                 <a href="#" class="close-popup-btn">&times;</a>
             </div>
@@ -697,6 +771,10 @@ if ($guards_result && $guards_result->num_rows > 0) {
                 <div class="mb-3 p-3 bg-light rounded border">
                     <div class="text-muted small fw-bold text-uppercase mb-1">Email Address</div>
                     <div class="text-dark"><?php echo htmlspecialchars($row['email']); ?></div>
+                </div>
+                <div class="mb-3 p-3 bg-light rounded border">
+                    <div class="text-muted small fw-bold text-uppercase mb-1">Phone Number</div>
+                    <div class="text-dark"><?php echo !empty($row['phone']) ? htmlspecialchars($row['phone']) : 'N/A'; ?></div>
                 </div>
                 <div class="p-3 bg-light rounded border">
                     <div class="text-muted small fw-bold text-uppercase mb-1">Date Provisioned</div>
@@ -712,20 +790,23 @@ if ($guards_result && $guards_result->num_rows > 0) {
     <!-- EDIT GUARD MODAL -->
     <div id="editGuardModal_<?php echo $row['id']; ?>" class="custom-modal-backdrop">
         <div class="custom-popup-window">
-            <div class="popup-header">
-                <h5 class="m-0 fw-bold text-dark" style="font-size:17px;">
-                    <i class="fa-solid fa-user-pen text-warning me-2"></i>Edit Guard Account
-                </h5>
-                <a href="#" class="close-popup-btn" onclick="stopAllCameras()">&times;</a>
-            </div>
-            <form action="guards.php" method="POST">
+            <form action="guards.php" method="POST" onsubmit="return validateEditPasswordMatch('<?php echo $row['id']; ?>')" class="modal-form-wrapper">
                 <input type="hidden" name="guard_id" value="<?php echo $row['id']; ?>">
+                
+                <div class="popup-header">
+                    <h5 class="m-0 fw-bold text-dark d-flex align-items-center gap-2" style="font-size:16px;">
+                        <i class="fa-solid fa-user-pen text-warning"></i>
+                        <span>Edit Guard Account</span>
+                    </h5>
+                    <a href="#" class="close-popup-btn" onclick="stopAllCameras()">&times;</a>
+                </div>
+
                 <div class="popup-body">
                     
                     <!-- 4 Photo Recapture Area -->
                     <div class="mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <label class="form-label fw-bold m-0">Recapture Face Snapshots <span class="text-muted fw-normal">(Optional)</span></label>
+                        <div class="d-flex justify-content-between align-items-center mb-1.5">
+                            <label class="form-label m-0">Recapture Face Snapshots <span class="text-muted fw-normal">(Optional)</span></label>
                             <span id="<?php echo $guardKey; ?>_status_badge" class="badge bg-secondary text-white">Captured: 0 / 4</span>
                         </div>
 
@@ -751,8 +832,12 @@ if ($guards_result && $guards_result->num_rows > 0) {
                         </div>
 
                         <div class="d-flex justify-content-center gap-2 mb-1">
-                            <button type="button" id="snap_<?php echo $guardKey; ?>_cam_btn" onclick="takeSnapshot('<?php echo $guardKey; ?>')" class="btn btn-sm btn-orange w-100 py-1.5"><i class="fa fa-camera me-1"></i> Capture Photo (<span id="<?php echo $guardKey; ?>_snap_num">1</span>/4)</button>
-                            <button type="button" id="retake_<?php echo $guardKey; ?>_cam_btn" onclick="resetSnapshots('<?php echo $guardKey; ?>')" class="btn btn-sm btn-secondary text-dark" style="display:none;"><i class="fa fa-rotate-right me-1"></i> Retake All</button>
+                            <button type="button" id="snap_<?php echo $guardKey; ?>_cam_btn" onclick="takeSnapshot('<?php echo $guardKey; ?>')" class="btn btn-sm btn-orange w-100 py-2">
+                                <i class="fa fa-camera me-1.5"></i> Capture Photo (<span id="<?php echo $guardKey; ?>_snap_num">1</span>/4)
+                            </button>
+                            <button type="button" id="retake_<?php echo $guardKey; ?>_cam_btn" onclick="resetSnapshots('<?php echo $guardKey; ?>')" class="btn btn-sm btn-secondary text-dark" style="display:none;">
+                                <i class="fa fa-rotate-right me-1"></i> Retake All
+                            </button>
                         </div>
 
                         <!-- Hidden Inputs -->
@@ -762,45 +847,78 @@ if ($guards_result && $guards_result->num_rows > 0) {
                         <input type="hidden" name="captured_image_4" id="<?php echo $guardKey; ?>_guard_image_4">
                     </div>
 
-                    <div class="mb-2.5">
+                    <div class="mb-3">
                         <label class="form-label">Station Login Username Handle</label>
                         <input type="text" name="username" class="form-control p-2" value="<?php echo htmlspecialchars($row['username']); ?>" required>
                     </div>
 
-                    <div class="mb-2.5">
+                    <div class="mb-3">
                         <label class="form-label">Corporate Email Address</label>
                         <input type="email" name="email" class="form-control p-2" value="<?php echo htmlspecialchars($row['email']); ?>" required>
                     </div>
 
-                    <div class="mb-1">
+                    <div class="mb-3">
+                        <label class="form-label">Phone Number</label>
+                        <input type="tel" name="phone" class="form-control p-2" value="<?php echo htmlspecialchars($row['phone'] ?? ''); ?>" placeholder="e.g., +63 912 345 6789">
+                    </div>
+
+                    <div class="mb-3">
                         <label class="form-label">New Password Key <span class="text-muted fw-normal">(Optional)</span></label>
-                        <input type="password" name="password" class="form-control p-2" placeholder="Leave blank to keep current password">
+                        <div class="input-group">
+                            <input type="password" name="password" id="edit_password_<?php echo $row['id']; ?>" class="form-control p-2" placeholder="Leave blank to keep current password">
+                            <button class="btn toggle-password-btn" type="button" onclick="togglePasswordVisibility('edit_password_<?php echo $row['id']; ?>', 'edit_eye_icon_1_<?php echo $row['id']; ?>')">
+                                <i class="fa fa-eye" id="edit_eye_icon_1_<?php echo $row['id']; ?>"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label">Enter New Password Again</label>
+                        <div class="input-group">
+                            <input type="password" name="confirm_password" id="edit_confirm_password_<?php echo $row['id']; ?>" class="form-control p-2" placeholder="Re-enter new password">
+                            <button class="btn toggle-password-btn" type="button" onclick="togglePasswordVisibility('edit_confirm_password_<?php echo $row['id']; ?>', 'edit_eye_icon_2_<?php echo $row['id']; ?>')">
+                                <i class="fa fa-eye" id="edit_eye_icon_2_<?php echo $row['id']; ?>"></i>
+                            </button>
+                        </div>
                     </div>
 
                 </div>
+
                 <div class="popup-footer">
                     <a href="#" class="btn btn-secondary btn-sm px-3 py-2 text-dark" onclick="stopAllCameras()" style="text-decoration:none; background-color:#edf2f7; border:1px solid #cbd5e1;">Cancel</a>
                     <button type="submit" name="edit_guard_btn" class="btn btn-orange btn-sm px-4 py-2">Save Changes</button>
                 </div>
+
             </form>
         </div>
     </div>
 
 <?php endforeach; ?>
 
-<!-- 4-PHOTO FACE RECOGNITION CAMERA JAVASCRIPT ENGINE -->
+<!-- 4-PHOTO FACE RECOGNITION CAMERA & FORM UTILITIES JAVASCRIPT -->
 <script>
     const cameraStreams = {};
     const captureState = {};
 
-    /**
-     * Start WebRTC Camera stream
-     */
+    function togglePasswordVisibility(inputId, iconId) {
+        const passwordInput = document.getElementById(inputId);
+        const eyeIcon = document.getElementById(iconId);
+
+        if (passwordInput.type === "password") {
+            passwordInput.type = "text";
+            eyeIcon.classList.remove("fa-eye");
+            eyeIcon.classList.add("fa-eye-slash");
+        } else {
+            passwordInput.type = "password";
+            eyeIcon.classList.remove("fa-eye-slash");
+            eyeIcon.classList.add("fa-eye");
+        }
+    }
+
     async function startCamera(mode) {
         const video = document.getElementById(mode + '_guard_video');
         if (!video) return;
 
-        // Reset capture tracker for modal
         captureState[mode] = { count: 0, photos: [] };
         updateSlotUI(mode);
 
@@ -819,9 +937,6 @@ if ($guards_result && $guards_result->num_rows > 0) {
         }
     }
 
-    /**
-     * Take a snapshot up to 4 photos
-     */
     function takeSnapshot(mode) {
         const video = document.getElementById(mode + '_guard_video');
         const canvas = document.getElementById(mode + '_guard_canvas');
@@ -847,10 +962,8 @@ if ($guards_result && $guards_result->num_rows > 0) {
         captureState[mode].count = currentCount;
         captureState[mode].photos.push(dataURL);
 
-        // Store into corresponding hidden input
         document.getElementById(mode + '_guard_image_' + currentCount).value = dataURL;
 
-        // Render preview inside corresponding slot box
         const slot = document.getElementById(mode + '_slot_' + currentCount);
         if (slot) {
             slot.innerHTML = `<img src="${dataURL}" />`;
@@ -861,9 +974,6 @@ if ($guards_result && $guards_result->num_rows > 0) {
         updateSlotUI(mode);
     }
 
-    /**
-     * Update labels, status badges, and button states for 4-photo progress
-     */
     function updateSlotUI(mode) {
         const state = captureState[mode] || { count: 0 };
         const count = state.count;
@@ -885,7 +995,6 @@ if ($guards_result && $guards_result->num_rows > 0) {
             }
         }
 
-        // Highlight next active slot
         for (let i = 1; i <= 4; i++) {
             const slot = document.getElementById(mode + '_slot_' + i);
             if (slot && i === count + 1 && count < 4) {
@@ -896,7 +1005,7 @@ if ($guards_result && $guards_result->num_rows > 0) {
         if (count >= 4) {
             if (snapBtn) snapBtn.style.display = 'none';
             if (retakeBtn) retakeBtn.style.display = 'inline-block';
-            if (submitBtn) submitBtn.disabled = false; // Enable submit button once all 4 are taken
+            if (submitBtn) submitBtn.disabled = false;
         } else {
             if (snapBtn) snapBtn.style.display = 'inline-block';
             if (retakeBtn) retakeBtn.style.display = 'none';
@@ -904,9 +1013,6 @@ if ($guards_result && $guards_result->num_rows > 0) {
         }
     }
 
-    /**
-     * Reset 4 captured snapshots and restart sequence
-     */
     function resetSnapshots(mode) {
         captureState[mode] = { count: 0, photos: [] };
 
@@ -924,9 +1030,6 @@ if ($guards_result && $guards_result->num_rows > 0) {
         updateSlotUI(mode);
     }
 
-    /**
-     * Stop webcam feed
-     */
     function stopCamera(mode) {
         if (cameraStreams[mode]) {
             cameraStreams[mode].getTracks().forEach(track => track.stop());
@@ -934,20 +1037,34 @@ if ($guards_result && $guards_result->num_rows > 0) {
         }
     }
 
-    /**
-     * Stop all webcam feeds
-     */
     function stopAllCameras() {
         Object.keys(cameraStreams).forEach(key => stopCamera(key));
     }
 
-    /**
-     * Validation check before submitting provision modal
-     */
     function validateCameraSubmission(mode) {
+        const pass = document.getElementById('add_guard_password').value;
+        const confirmPass = document.getElementById('add_guard_confirm_password').value;
+
+        if (pass !== confirmPass) {
+            alert("Passwords do not match! Please check and re-enter.");
+            return false;
+        }
+
         const state = captureState[mode];
         if (!state || state.count < 4) {
             alert("Please complete all 4 photo captures for face recognition accuracy.");
+            return false;
+        }
+        stopAllCameras();
+        return true;
+    }
+
+    function validateEditPasswordMatch(id) {
+        const pass = document.getElementById('edit_password_' + id).value;
+        const confirmPass = document.getElementById('edit_confirm_password_' + id).value;
+
+        if (pass.length > 0 && pass !== confirmPass) {
+            alert("New passwords do not match! Please check and re-enter.");
             return false;
         }
         stopAllCameras();

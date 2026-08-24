@@ -134,29 +134,37 @@ if (file_exists('../config/database.php')) {
             margin: 0 !important;
         }
 
-        .sidebar .nav-link {
-            color: #4a5568 !important;
-            font-size: 14px;
-            font-weight: 500;
-            padding: 12px 20px;
-            margin: 4px 16px;
-            border-radius: 8px;
-            display: flex !important;
-            align-items: center;
-            text-decoration: none !important;
-            transition: all 0.2s ease;
-        }
+       .sidebar .nav-link {
+    color: #4a5568 !important;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 12px 20px;
+    margin: 4px 16px;
+    border-radius: 8px;
+    display: flex !important;
+    align-items: center;
+    text-decoration: none !important;
+    transition: all 0.2s ease;
+}
 
-        .sidebar .nav-link:hover {
-            color: var(--subdivision-orange) !important;
-            background-color: rgba(230, 106, 0, 0.05) !important;
-        }
 
-        .sidebar .nav-link.active {
-            color: #ffffff !important;
-            background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%) !important;
-            font-weight: 600;
-        }
+.sidebar .nav-link:not(.active):hover {
+    color: var(--subdivision-orange) !important;
+    background-color: rgba(230, 106, 0, 0.08) !important;
+}
+
+
+.sidebar .nav-link.active {
+    color: #ffffff !important;
+    background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%) !important;
+    font-weight: 600;
+}
+
+
+.sidebar .nav-link.active:hover {
+    opacity: 0.92;
+    color: #ffffff !important;
+}
 
         .sidebar .nav-link i {
             font-size: 16px;
@@ -358,11 +366,11 @@ if (file_exists('../config/database.php')) {
             </div>
             
             <ul class="sidebar-menu mt-3">
-                <li><a href="dashboard.php" class="nav-link"><i class="fa fa-chart-pie"></i> Dashboard</a></li>
+                <li><a href="dashboard.php" class="nav-link active"><i class="fa fa-chart-pie"></i> Dashboard</a></li>
                 <li><a href="events.php" class="nav-link"><i class="fa fa-calendar-alt"></i> Events</a></li>
                 <li><a href="residents.php" class="nav-link"><i class="fa fa-users"></i> Residents</a></li>
                 <li><a href="face_registration.php" class="nav-link"><i class="fa fa-user-shield"></i> Personnel</a></li>
-                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests</a></li>
+                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests & Concerns</a></li>
                 <li><a href="billing.php" class="nav-link"><i class="fa fa-credit-card"></i> Billing</a></li>
                 <li><a href="expenses.php" class="nav-link"><i class="fa fa-money-bill-transfer"></i> Expenses</a></li>
                 <li><a href="guards.php" class="nav-link"><i class="fa fa-user-lock"></i> Staff Guards</a></li>

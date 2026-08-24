@@ -2,7 +2,7 @@
 session_start();
 require_once 'config/database.php';
 
-if (isset($_POST['login_btn'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_POST['login_btn'])) {
     // Escape inputs to prevent basic SQL injections
     $username = $conn->real_escape_string($_POST['username']);
     $password = $_POST['password'];
@@ -21,7 +21,7 @@ if (isset($_POST['login_btn'])) {
     $query = "SELECT * FROM users WHERE username = '$username'";
     $result = $conn->query($query);
 
-    if ($result->num_rows > 0) {
+    if ($result && $result->num_rows > 0) {
         $user = $result->fetch_assoc();
 
         // Checking password (supports plain text for your test accounts or hashed fields)
@@ -29,15 +29,17 @@ if (isset($_POST['login_btn'])) {
             
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
-            $_SESSION['role'] = $user['role'];
+            $_SESSION['role'] = strtolower(trim($user['role']));
 
             // Redirect based on user role mapping
-            if ($user['role'] === 'admin') {
+            if ($_SESSION['role'] === 'admin') {
                 header("Location: admin/dashboard.php");
-            } elseif ($user['role'] === 'guard') {
+            } elseif ($_SESSION['role'] === 'guard') {
                 header("Location: guard/dashboard.php");
-            } elseif ($user['role'] === 'resident') {
+            } elseif ($_SESSION['role'] === 'resident') {
                 header("Location: resident/dashboard.php");
+            } else {
+                header("Location: index.php?error=Role not defined");
             }
             exit();
         } else {

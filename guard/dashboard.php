@@ -9,7 +9,34 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
 
 require_once '../config/database.php';
 
-// SQL Query: Joins access_logs -> visitors -> residents (host) & direct residents
+// Pagination Parameters
+$limit = 10;
+$page = isset($_GET['page']) && is_numeric($_GET['page']) ? (int)$_GET['page'] : 1;
+if ($page < 1) { $page = 1; }
+$offset = ($page - 1) * $limit;
+
+// Filter Parameters
+$filter_date = isset($_GET['filter_date']) ? trim($_GET['filter_date']) : '';
+
+// Dynamic Where Clause
+$where_sql = "";
+if (!empty($filter_date)) {
+    $where_sql = " WHERE DATE(l.timestamp) = '" . $conn->real_escape_string($filter_date) . "' ";
+}
+
+// 1. Get total record count for pagination
+$count_query = "SELECT COUNT(*) AS total FROM access_logs l " . $where_sql;
+$count_result = $conn->query($count_query);
+$total_rows = ($count_result && $count_result->num_rows > 0) ? $count_result->fetch_assoc()['total'] : 0;
+$total_pages = ceil($total_rows / $limit);
+
+// Re-check page bound after knowing total_pages
+if ($page > $total_pages && $total_pages > 0) {
+    $page = $total_pages;
+    $offset = ($page - 1) * $limit;
+}
+
+// 2. Fetch Paginated & Filtered Logs
 $logs_query = "
     SELECT 
         l.id,
@@ -17,13 +44,13 @@ $logs_query = "
         l.person_id,
         l.log_type,
         l.timestamp,
-        -- Direct resident info (when resident enters)
+        -- Direct resident info
         r_direct.full_name AS resident_name,
         r_direct.house_number AS resident_house,
         -- Visitor info
         v.visitor_name AS visitor_name,
         v.resident_id AS visitor_resident_id,
-        -- Visited Host info (via visitors.resident_id)
+        -- Visited Host info
         r_host.full_name AS host_resident_name,
         r_host.house_number AS host_house_number,
         -- Frequent personnel info
@@ -35,11 +62,12 @@ $logs_query = "
     LEFT JOIN visitors v 
         ON l.person_id = v.id AND l.person_type = 'visitor'
     LEFT JOIN residents r_host 
-        ON v.resident_id = r_host.id
+        ON (v.resident_id = r_host.user_id OR v.resident_id = r_host.id)
     LEFT JOIN frequent_personnel fp 
         ON l.person_id = fp.id AND l.person_type = 'frequent_personnel'
+    {$where_sql}
     ORDER BY l.id DESC 
-    LIMIT 50
+    LIMIT {$limit} OFFSET {$offset}
 ";
 
 $result = $conn->query($logs_query);
@@ -147,6 +175,14 @@ $result = $conn->query($logs_query);
             padding: 4px 10px; 
             border-radius: 6px; 
         }
+        .pagination .page-item.active .page-link {
+            background-color: var(--subdivision-orange);
+            border-color: var(--subdivision-orange);
+            color: #fff;
+        }
+        .pagination .page-link {
+            color: #475569;
+        }
     </style>
 </head>
 <body>
@@ -177,19 +213,36 @@ $result = $conn->query($logs_query);
                 <h1 class="h3 fw-bold text-dark m-0">Subdivision Access Tracking Center</h1>
                 <p class="text-muted small mb-0 mt-1">Monitor live perimeter entry, visitor movements, and destination logs.</p>
             </div>
-            <button onclick="location.reload()" class="btn btn-sm btn-outline-secondary fw-semibold px-3 py-2">
+            <button onclick="location.href='dashboard.php'" class="btn btn-sm btn-outline-secondary fw-semibold px-3 py-2">
                 <i class="fa-solid fa-rotate me-1"></i> Refresh Stream Feed
             </button>
         </div>
 
         <!-- TABLE CARD -->
         <div class="dashboard-card">
-            <div class="p-3 border-bottom bg-white d-flex align-items-center gap-2">
-                <i class="fa-solid fa-clock-rotate-left text-warning fs-5"></i>
-                <h6 class="fw-bold m-0 text-dark">Real-Time Activity Logs Stream</h6>
+            <!-- HEADER WITH DATE FILTER -->
+            <div class="p-3 border-bottom bg-white d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="fa-solid fa-clock-rotate-left text-warning fs-5"></i>
+                    <h6 class="fw-bold m-0 text-dark">Real-Time Activity Logs Stream</h6>
+                </div>
+                
+                <!-- DATE FILTER FORM -->
+                <form method="GET" action="" class="d-flex align-items-center gap-2 m-0">
+                    <input type="date" name="filter_date" class="form-control form-control-sm" value="<?php echo htmlspecialchars($filter_date); ?>">
+                    <button type="submit" class="btn btn-sm btn-warning text-white fw-bold px-3">
+                        <i class="fa-solid fa-filter me-1"></i> Filter
+                    </button>
+                    <?php if (!empty($filter_date)): ?>
+                        <a href="dashboard.php" class="btn btn-sm btn-outline-secondary">
+                            <i class="fa-solid fa-xmark"></i> Clear
+                        </a>
+                    <?php endif; ?>
+                </form>
             </div>
+
             <div class="table-responsive">
-                <table class="table modern-table align-middle">
+                <table class="table modern-table align-middle m-0">
                     <thead>
                         <tr>
                             <th>Transaction Timestamp</th>
@@ -210,17 +263,13 @@ $result = $conn->query($logs_query);
 
                                 if ($personType === 'visitor') {
                                     $classification = "Visitor";
-                                    // Set Visitor Name
                                     $displayName = !empty($row['visitor_name']) ? $row['visitor_name'] : "Visitor #" . $row['person_id'];
                                     
-                                    // Set Host Resident Details
-                                    if (!empty($row['host_house_number']) || !empty($row['host_resident_name'])) {
-                                        $visitedHost = "House No. " . ($row['host_house_number'] ?? 'N/A');
+                                    if (!empty($row['host_house_number'])) {
+                                        $visitedHost = "House No. " . $row['host_house_number'];
                                         if (!empty($row['host_resident_name'])) {
                                             $visitedHost .= " (" . $row['host_resident_name'] . ")";
                                         }
-                                    } elseif (!empty($row['visitor_resident_id'])) {
-                                        $visitedHost = "Resident Host ID #" . $row['visitor_resident_id'];
                                     } else {
                                         $visitedHost = "Subdivision Guest";
                                     }
@@ -239,11 +288,8 @@ $result = $conn->query($logs_query);
                                     }
                                 }
 
-                                // Gate Activity (entry -> TIME IN, exit -> TIME OUT)
                                 $logType = strtolower($row['log_type'] ?? 'entry');
                                 $isTimeIn = ($logType === 'entry' || $logType === 'time in');
-                                
-                                // Format Timestamp
                                 $timestamp = date("M d, Y - h:i A", strtotime($row['timestamp']));
                             ?>
                                 <tr>
@@ -275,13 +321,69 @@ $result = $conn->query($logs_query);
                             <tr>
                                 <td colspan="5" class="text-center text-muted py-5">
                                     <i class="fa-solid fa-list-check fs-3 d-block mb-2 opacity-50"></i>
-                                    No entry/exit logs found.
+                                    No entry/exit logs found <?php echo !empty($filter_date) ? "for selected date" : ""; ?>.
                                 </td>
                             </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
             </div>
+
+            <!-- PAGINATION FOOTER -->
+            <?php if ($total_pages > 0): ?>
+            <div class="p-3 border-top bg-white d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <div class="small text-muted">
+                    Showing <strong><?php echo min($offset + 1, $total_rows); ?></strong> to <strong><?php echo min($offset + $limit, $total_rows); ?></strong> of <strong><?php echo $total_rows; ?></strong> entries
+                </div>
+                
+                <?php if ($total_pages > 1): ?>
+                <?php 
+                    // Calculate dynamic sliding page window (Maximum of 5 numbered buttons)
+                    $max_visible = 5;
+                    $start_page = max(1, $page - floor($max_visible / 2));
+                    $end_page = min($total_pages, $start_page + $max_visible - 1);
+
+                    // Re-adjust start page if we are near the end
+                    if ($end_page - $start_page + 1 < $max_visible) {
+                        $start_page = max(1, $end_page - $max_visible + 1);
+                    }
+                    
+                    $filter_param = !empty($filter_date) ? '&filter_date=' . urlencode($filter_date) : '';
+                ?>
+                <nav>
+                    <ul class="pagination pagination-sm m-0">
+                        <!-- FIRST BUTTON -->
+                        <li class="page-item <?php echo ($page <= 1) ? 'disabled' : ''; ?>">
+                            <a class="page-link" href="?page=1<?php echo $filter_param; ?>"><i class="fa-solid fa-angles-left me-1"></i>First</a>
+                        </li>
+
+                        <!-- PREVIOUS BUTTON -->
+                        <li class="page-item <?php echo ($page <= 1) ? 'disabled' : ''; ?>">
+                            <a class="page-link" href="?page=<?php echo max(1, $page - 1); ?><?php echo $filter_param; ?>">Previous</a>
+                        </li>
+
+                        <!-- DYNAMIC WINDOW NUMBERS (MAX 5) -->
+                        <?php for ($i = $start_page; $i <= $end_page; $i++): ?>
+                            <li class="page-item <?php echo ($page == $i) ? 'active' : ''; ?>">
+                                <a class="page-link" href="?page=<?php echo $i; ?><?php echo $filter_param; ?>"><?php echo $i; ?></a>
+                            </li>
+                        <?php endfor; ?>
+
+                        <!-- NEXT BUTTON -->
+                        <li class="page-item <?php echo ($page >= $total_pages) ? 'disabled' : ''; ?>">
+                            <a class="page-link" href="?page=<?php echo min($total_pages, $page + 1); ?><?php echo $filter_param; ?>">Next</a>
+                        </li>
+
+                        <!-- LAST BUTTON -->
+                        <li class="page-item <?php echo ($page >= $total_pages) ? 'disabled' : ''; ?>">
+                            <a class="page-link" href="?page=<?php echo $total_pages; ?><?php echo $filter_param; ?>">Last <i class="fa-solid fa-angles-right ms-1"></i></a>
+                        </li>
+                    </ul>
+                </nav>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+
         </div>
     </div>
 </div>

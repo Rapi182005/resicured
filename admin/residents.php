@@ -50,6 +50,7 @@ function saveBase64Media($base64_data, $user_id, $index = 1) {
 // ================= ACTION: PROCESS NEW RESIDENT REGISTRATION WITH FACE ID =================
 if (isset($_POST['add_resident_btn'])) {
     $full_name = trim($_POST['full_name']);
+    $resident_type = trim($_POST['resident_type'] ?? 'Homeowner');
     $email = trim($_POST['email']);
     $contact_number = trim($_POST['contact_number']);
     $house_number = trim($_POST['house_number']);
@@ -77,8 +78,8 @@ if (isset($_POST['add_resident_btn'])) {
             $path3 = saveBase64Media($img3, $new_user_id, 3);
             $path4 = saveBase64Media($img4, $new_user_id, 4);
 
-            $stmt2 = $conn->prepare("INSERT INTO residents (user_id, full_name, house_number, face_template_path, contact_number, registered_vehicle_plate) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt2->bind_param("isssss", $new_user_id, $full_name, $house_number, $saved_file_path, $contact_number, $vehicle_plate);
+            $stmt2 = $conn->prepare("INSERT INTO residents (user_id, full_name, resident_type, house_number, face_template_path, contact_number, registered_vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt2->bind_param("issssss", $new_user_id, $full_name, $resident_type, $house_number, $saved_file_path, $contact_number, $vehicle_plate);
             $stmt2->execute();
 
             $conn->commit();
@@ -114,6 +115,7 @@ if (isset($_POST['update_resident_btn'])) {
     $resident_id = intval($_POST['edit_resident_id']);
     $user_id = intval($_POST['edit_user_id']);
     $full_name = trim($_POST['edit_full_name']);
+    $resident_type = trim($_POST['edit_resident_type'] ?? 'Homeowner');
     $email = trim($_POST['edit_email']);
     $contact_number = trim($_POST['edit_contact_number']);
     $house_number = trim($_POST['edit_house_number']);
@@ -172,8 +174,8 @@ if (isset($_POST['update_resident_btn'])) {
                 }
             }
 
-            $stmt2 = $conn->prepare("UPDATE residents SET full_name = ?, house_number = ?, contact_number = ?, registered_vehicle_plate = ? WHERE id = ?");
-            $stmt2->bind_param("ssssi", $full_name, $house_number, $contact_number, $vehicle_plate, $resident_id);
+            $stmt2 = $conn->prepare("UPDATE residents SET full_name = ?, resident_type = ?, house_number = ?, contact_number = ?, registered_vehicle_plate = ? WHERE id = ?");
+            $stmt2->bind_param("sssssi", $full_name, $resident_type, $house_number, $contact_number, $vehicle_plate, $resident_id);
             $stmt2->execute();
 
             if (!empty($_POST['edit_password'])) {
@@ -246,10 +248,10 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
     
     <style>
         :root {
-            --primary-orange: #ea580c;
-            --primary-orange-hover: #c2410c;
-            --primary-orange-soft: #fff7ed;
-            --primary-orange-border: #ffedd5;
+            --subdivision-orange: #ea580c;
+            --subdivision-amber: #f97316;
+            --subdivision-soft-orange: #fff7ed;
+            --subdivision-border: #ffedd5;
             --bg-main: #f8fafc;
             --sidebar-bg: #ffffff;
             --text-heading: #0f172a;
@@ -274,12 +276,12 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             width: 100%;
         }
 
-        /* SIDEBAR STYLING */
+        /* UNIFIED DASHBOARD SIDEBAR STYLING */
         .sidebar {
             width: 260px;
             background-color: var(--sidebar-bg);
             border-right: 1px solid var(--border-color);
-            padding: 24px 16px;
+            padding: 24px 0;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
@@ -289,7 +291,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
         }
 
         .brand-logo-area {
-            padding: 0 12px 20px 12px;
+            padding: 0 20px 20px 20px;
             display: flex;
             align-items: center;
             gap: 12px;
@@ -297,9 +299,9 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
         }
 
         .brand-icon-box {
-            width: 38px;
-            height: 38px;
-            background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%);
             color: white;
             border-radius: var(--radius-md);
             display: flex;
@@ -320,38 +322,40 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
         .sidebar-menu { list-style: none; padding: 0; margin: 16px 0 0 0; }
 
         .sidebar .nav-link {
-            color: #475569;
+            color: #4a5568 !important;
             font-size: 14px;
-            font-weight: 600;
-            padding: 10px 14px;
-            margin: 4px 0;
-            border-radius: var(--radius-md);
-            display: flex;
+            font-weight: 500;
+            padding: 12px 20px;
+            margin: 4px 16px;
+            border-radius: 8px;
+            display: flex !important;
             align-items: center;
             gap: 12px;
-            text-decoration: none;
-            transition: all 0.15s ease;
+            text-decoration: none !important;
+            transition: all 0.2s ease;
         }
 
-        .sidebar .nav-link:hover {
-            color: var(--primary-orange);
-            background-color: var(--primary-orange-soft);
+        .sidebar .nav-link:not(.active):hover {
+            color: var(--subdivision-orange) !important;
+            background-color: rgba(234, 88, 12, 0.08) !important;
         }
 
         .sidebar .nav-link.active {
-            color: var(--primary-orange);
-            background-color: var(--primary-orange-soft);
-            border: 1px solid var(--primary-orange-border);
+            color: #ffffff !important;
+            background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%) !important;
+            font-weight: 600;
+            border: none !important;
+            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25);
         }
 
         .sidebar .nav-link i { font-size: 16px; width: 20px; text-align: center; }
 
         .logout-btn { 
             background-color: #fef2f2; 
-            color: #dc2626; 
+            color: #dc2626 !important; 
             border: 1px solid #fee2e2; 
         }
-        .logout-btn:hover { background-color: #dc2626; color: #ffffff; }
+        .logout-btn:hover { background-color: #dc2626 !important; color: #ffffff !important; }
 
         /* MAIN CONTENT AREA */
         .main-content {
@@ -369,35 +373,54 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             margin: 0; 
         }
 
+        /* GRADIENT BUTTON ACCENTS */
+        .btn-gradient-orange {
+            background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%);
+            color: #ffffff !important;
+            border: none;
+            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.2);
+            transition: all 0.2s ease;
+        }
+        .btn-gradient-orange:hover {
+            opacity: 0.92;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(234, 88, 12, 0.3);
+        }
+
         /* STAT CARDS */
         .stat-card {
             background: #ffffff;
             border: 1px solid var(--border-color);
             border-radius: var(--radius-lg);
-            padding: 18px 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
             display: flex;
             align-items: center;
             gap: 16px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.04);
         }
 
         .stat-icon {
-            width: 44px;
-            height: 44px;
+            width: 48px;
+            height: 48px;
             border-radius: var(--radius-md);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.2rem;
+            font-size: 1.25rem;
         }
 
-        /* SEARCH & FILTER TOOLBAR */
+        /* SEARCH & TOOLBAR */
         .toolbar-card {
             background: #ffffff;
             border: 1px solid var(--border-color);
             border-radius: var(--radius-lg);
             padding: 16px 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
             margin-bottom: 20px;
         }
 
@@ -425,7 +448,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
         }
 
         .search-box input:focus {
-            border-color: var(--primary-orange);
+            border-color: var(--subdivision-orange);
             box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
         }
 
@@ -435,7 +458,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             border: 1px solid var(--border-color); 
             border-radius: var(--radius-lg); 
             overflow: hidden; 
-            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
         }
 
         .modern-table {
@@ -457,7 +480,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
         }
 
         .modern-table tbody td {
-            padding: 14px 20px;
+            padding: 16px 20px;
             vertical-align: middle;
             border-bottom: 1px solid #f1f5f9;
             color: var(--text-body);
@@ -465,13 +488,12 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
         }
 
         .modern-table tbody tr:last-child td { border-bottom: none; }
-
         .modern-table tbody tr { transition: background-color 0.15s ease; }
         .modern-table tbody tr:hover { background-color: #f8fafc; }
 
         .avatar-thumbnail { 
-            width: 42px; 
-            height: 42px; 
+            width: 44px; 
+            height: 44px; 
             border-radius: 50%; 
             object-fit: cover; 
             border: 2px solid #ffffff; 
@@ -483,7 +505,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             background-color: #f1f5f9;
             color: #334155;
             font-weight: 600;
-            padding: 5px 10px;
+            padding: 6px 12px;
             border-radius: var(--radius-sm);
             font-size: 12px;
             display: inline-flex;
@@ -506,10 +528,20 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             gap: 6px;
         }
 
-        .username-tag {
-            color: var(--text-muted);
+        /* ACTION BUTTONS */
+        .btn-action-view {
+            background-color: #eff6ff;
+            color: #2563eb;
+            border: 1px solid #bfdbfe;
             font-weight: 600;
-            font-size: 13px;
+            font-size: 12px;
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            transition: all 0.15s ease;
+        }
+        .btn-action-view:hover {
+            background-color: #dbeafe;
+            color: #1d4ed8;
         }
 
         .btn-action-edit {
@@ -522,7 +554,6 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             border-radius: var(--radius-sm);
             transition: all 0.15s ease;
         }
-
         .btn-action-edit:hover {
             background-color: #fde68a;
             color: #b45309;
@@ -538,7 +569,6 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             border-radius: var(--radius-sm);
             transition: all 0.15s ease;
         }
-
         .btn-action-delete:hover {
             background-color: #fca5a5;
             color: #991b1b;
@@ -553,7 +583,30 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             position: relative; 
             border: 2px dashed #64748b; 
         }
-        #adminWebcam, #editAdminWebcam { width: 100%; height: 100%; object-fit: cover; display: none; }
+        #adminWebcam, #editAdminWebcam { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+            display: none; 
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+
+        .cam-placeholder-box {
+            position: absolute; 
+            width: 100%; 
+            height: 100%;
+            top: 0; 
+            left: 0; 
+            z-index: 5; 
+            background: #f8fafc;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
 
         .current-face-preview {
             width: 110px;
@@ -569,14 +622,14 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
         .grid-snap-box img { width: 100%; height: 100%; object-fit: cover; }
         .grid-snap-label { position: absolute; bottom: 2px; font-size: 8.5px; font-weight: 700; background: rgba(15,23,42,0.75); color: #fff; padding: 1px 4px; border-radius: 3px; z-index: 2; }
         
-        .form-control {
+        .form-control, .form-select {
             border-radius: var(--radius-md);
             border: 1px solid var(--border-color);
             padding: 9px 13px;
             font-size: 13.5px;
         }
-        .form-control:focus {
-            border-color: var(--primary-orange);
+        .form-control:focus, .form-select:focus {
+            border-color: var(--subdivision-orange);
             box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
         }
     </style>
@@ -596,9 +649,9 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
              <ul class="sidebar-menu mt-3">
                 <li><a href="dashboard.php" class="nav-link"><i class="fa fa-chart-pie"></i> Dashboard</a></li>
                 <li><a href="events.php" class="nav-link"><i class="fa fa-calendar-alt"></i> Events</a></li>
-                <li><a href="residents.php" class="nav-link"><i class="fa fa-users"></i> Residents</a></li>
+                <li><a href="residents.php" class="nav-link active"><i class="fa fa-users"></i> Residents</a></li>
                 <li><a href="face_registration.php" class="nav-link"><i class="fa fa-user-shield"></i> Personnel</a></li>
-                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests</a></li>
+                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests & Concerns</a></li>
                 <li><a href="billing.php" class="nav-link"><i class="fa fa-credit-card"></i> Billing</a></li>
                 <li><a href="expenses.php" class="nav-link"><i class="fa fa-money-bill-transfer"></i> Expenses</a></li>
                 <li><a href="guards.php" class="nav-link"><i class="fa fa-user-lock"></i> Staff Guards</a></li>
@@ -614,10 +667,10 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
         <!-- HEADER TITLE -->
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
-                <h1 class="dashboard-title">Residents Management</h1>
-                <p class="text-muted small mb-0 mt-1">Manage subdivision profiles, authorization credentials, and biometric mappings.</p>
+                <h1 class="dashboard-title">Residents Directory</h1>
+                <p class="text-muted small mb-0 mt-1">Manage subdivision resident records, access authorization, and biometric mappings.</p>
             </div>
-            <button class="btn text-white fw-bold px-4 py-2" style="background-color: var(--primary-orange); border-radius: var(--radius-md); font-size: 14px;" data-bs-toggle="modal" data-bs-target="#addResidentModal">
+            <button class="btn btn-gradient-orange fw-bold px-4 py-2" style="border-radius: var(--radius-md); font-size: 14px;" data-bs-toggle="modal" data-bs-target="#addResidentModal">
                 <i class="fa fa-plus me-2"></i>Add Resident
             </button>
         </div>
@@ -666,16 +719,16 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             <div class="alert alert-danger border-0 shadow-sm mb-3 small fw-medium" style="border-radius: var(--radius-md);"><i class="fa-solid fa-circle-exclamation me-2"></i><?php echo $error_msg; ?></div>
         <?php endif; ?>
 
-        <!-- TOOLBAR WITH INSTANT LIVE SEARCH -->
+        <!-- TOOLBAR WITH LIVE SEARCH -->
         <div class="toolbar-card d-flex justify-content-between align-items-center">
             <div class="search-box">
                 <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" id="residentSearchInput" class="form-control" placeholder="Search by name, house no, plate or email...">
+                <input type="text" id="residentSearchInput" class="form-control" placeholder="Search by name, house no, or email...">
             </div>
-            <span class="text-muted small fw-semibold">Directory Records: <span class="text-dark fw-bold" id="visibleCount"><?php echo $total_residents; ?></span></span>
+            <span class="text-muted small fw-semibold">Total Records: <span class="text-dark fw-bold" id="visibleCount"><?php echo $total_residents; ?></span></span>
         </div>
 
-        <!-- CLEAN REDESIGNED TABLE CARD -->
+        <!-- SIMPLIFIED TABLE CARD -->
         <div class="table-card">
             <div class="table-responsive">
                 <table class="table modern-table align-middle" id="residentsTable">
@@ -683,9 +736,6 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
                         <tr>
                             <th>Resident Profile</th>
                             <th>House No.</th>
-                            <th>Contact Info</th>
-                            <th>Registered Vehicle</th>
-                            <th>Username</th>
                             <th class="text-end">Actions</th>
                         </tr>
                     </thead>
@@ -697,6 +747,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
                                 $u_data = ($u_check && $u_check->num_rows > 0) ? $u_check->fetch_assoc() : ['email' => '', 'username' => ''];
                                 $file_path = !empty($row['face_template_path']) ? htmlspecialchars($row['face_template_path']) : '';
                                 $is_video = preg_match('/\.(webm|mp4)$/i', $file_path);
+                                $res_type = !empty($row['resident_type']) ? htmlspecialchars($row['resident_type']) : 'Homeowner';
                             ?>
                                 <tr class="resident-row">
                                     <td>
@@ -708,31 +759,32 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
                                             <?php endif; ?>
                                             <div>
                                                 <div class="fw-bold text-dark search-target-name"><?php echo htmlspecialchars($row['full_name']); ?></div>
-                                                <div class="text-muted small search-target-email"><?php echo htmlspecialchars($u_data['email']); ?></div>
+                                                <span class="badge bg-light text-dark border mt-1" style="font-size: 10px;">
+                                                    <i class="fa-solid fa-user-tag me-1 text-muted"></i><?php echo $res_type; ?>
+                                                </span>
                                             </div>
                                         </div>
                                     </td>
                                     <td>
                                         <span class="house-badge search-target-house"><i class="fa-solid fa-house-user opacity-75"></i><?php echo htmlspecialchars($row['house_number']); ?></span>
                                     </td>
-                                    <td>
-                                        <span class="text-secondary fw-medium"><i class="fa-solid fa-phone me-1 text-muted small opacity-75"></i><?php echo htmlspecialchars($row['contact_number']); ?></span>
-                                    </td>
-                                    <td>
-                                        <?php if(!empty($row['registered_vehicle_plate'])): ?>
-                                            <span class="plate-badge search-target-plate"><i class="fa fa-car"></i><?php echo htmlspecialchars($row['registered_vehicle_plate']); ?></span>
-                                        <?php else: ?>
-                                            <span class="text-muted small fst-italic">No Vehicle</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <span class="username-tag">@<?php echo htmlspecialchars($u_data['username']); ?></span>
-                                    </td>
                                     <td class="text-end">
+                                        <button class="btn btn-action-view me-1 view-resident-btn"
+                                                data-name="<?php echo htmlspecialchars($row['full_name']); ?>"
+                                                data-type="<?php echo $res_type; ?>"
+                                                data-house="<?php echo htmlspecialchars($row['house_number']); ?>"
+                                                data-vehicle="<?php echo htmlspecialchars($row['registered_vehicle_plate']); ?>"
+                                                data-contact="<?php echo htmlspecialchars($row['contact_number']); ?>"
+                                                data-username="<?php echo htmlspecialchars($u_data['username']); ?>"
+                                                data-email="<?php echo htmlspecialchars($u_data['email']); ?>"
+                                                data-face="../<?php echo !empty($file_path) ? $file_path : 'assets/images/default-avatar.png'; ?>">
+                                            <i class="fa-regular fa-eye me-1"></i>View
+                                        </button>
                                         <button class="btn btn-action-edit me-1 edit-resident-btn" 
                                                 data-id="<?php echo $row['id']; ?>"
                                                 data-userid="<?php echo $row['user_id']; ?>"
                                                 data-name="<?php echo htmlspecialchars($row['full_name']); ?>"
+                                                data-type="<?php echo $res_type; ?>"
                                                 data-house="<?php echo htmlspecialchars($row['house_number']); ?>"
                                                 data-vehicle="<?php echo htmlspecialchars($row['registered_vehicle_plate']); ?>"
                                                 data-contact="<?php echo htmlspecialchars($row['contact_number']); ?>"
@@ -752,7 +804,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
                             <?php endwhile; ?>
                         <?php else: ?>
                             <tr id="noResultsRow">
-                                <td colspan="6" class="text-center text-muted py-5">
+                                <td colspan="3" class="text-center text-muted py-5">
                                     <i class="fa-solid fa-users-slash fs-3 d-block mb-2 opacity-50"></i>
                                     No community residents registered yet.
                                 </td>
@@ -760,6 +812,53 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
                         <?php endif; ?>
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: VIEW RESIDENT DETAILS -->
+<div class="modal fade" id="viewResidentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 440px;">
+        <div class="modal-content border-0">
+            <div class="modal-header border-bottom py-3">
+                <h5 class="modal-title fw-bold text-dark fs-6"><i class="fa fa-id-card me-2 text-primary"></i>Resident Information</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4 bg-white">
+                <div class="text-center mb-4">
+                    <div id="viewMediaWrapper" class="d-flex justify-content-center mb-3">
+                        <img id="viewFaceImageDisplay" src="" class="current-face-preview" alt="Thumbnail" style="display: none;">
+                        <video id="viewFaceVideoDisplay" src="" class="current-face-preview" muted loop autoplay style="display: none;"></video>
+                    </div>
+                    <h5 id="viewFullName" class="fw-bold text-dark mb-1"></h5>
+                    <span id="viewUsername" class="badge bg-light text-secondary border"></span>
+                </div>
+                <div class="list-group list-group-flush border-top pt-2">
+                    <div class="list-group-item px-0 d-flex justify-content-between align-items-center border-0 py-2">
+                        <span class="text-muted small"><i class="fa-solid fa-user-tag me-2 opacity-75"></i>Resident Type</span>
+                        <span id="viewResidentType" class="fw-bold text-dark small"></span>
+                    </div>
+                    <div class="list-group-item px-0 d-flex justify-content-between align-items-center border-0 py-2">
+                        <span class="text-muted small"><i class="fa-solid fa-house-user me-2 opacity-75"></i>House Number</span>
+                        <span id="viewHouseNumber" class="fw-bold text-dark small"></span>
+                    </div>
+                    <div class="list-group-item px-0 d-flex justify-content-between align-items-center border-0 py-2">
+                        <span class="text-muted small"><i class="fa-solid fa-envelope me-2 opacity-75"></i>Email Address</span>
+                        <span id="viewEmail" class="fw-semibold text-dark small"></span>
+                    </div>
+                    <div class="list-group-item px-0 d-flex justify-content-between align-items-center border-0 py-2">
+                        <span class="text-muted small"><i class="fa-solid fa-phone me-2 opacity-75"></i>Contact Number</span>
+                        <span id="viewContactNumber" class="fw-semibold text-dark small"></span>
+                    </div>
+                    <div class="list-group-item px-0 d-flex justify-content-between align-items-center border-0 py-2">
+                        <span class="text-muted small"><i class="fa-solid fa-car me-2 opacity-75"></i>Vehicle Plate</span>
+                        <span id="viewVehiclePlate"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-0">
+                <button type="button" class="btn btn-sm btn-secondary fw-semibold px-4" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -780,6 +879,13 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
                             <div>
                                 <label class="form-label small fw-bold text-dark">Full Name <span class="text-danger">*</span></label>
                                 <input type="text" name="full_name" class="form-control" placeholder="e.g., Juan Dela Cruz" required>
+                            </div>
+                            <div>
+                                <label class="form-label small fw-bold text-dark">Resident Type <span class="text-danger">*</span></label>
+                                <select name="resident_type" class="form-select" required>
+                                    <option value="Homeowner" selected>Homeowner</option>
+                                    <option value="Tenant">Tenant</option>
+                                </select>
                             </div>
                             <div class="row g-2">
                                 <div class="col-6">
@@ -821,14 +927,14 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
 
                             <div class="admin-cam-box mb-3 mx-auto">
                                 <video id="adminWebcam" autoplay playsinline muted></video>
-                                <div id="camPlaceholderText" class="text-muted d-flex flex-column justify-content-center align-items-center h-100 bg-light small" style="position: absolute; width: 100%; top: 0; left: 0; z-index: 5; background: #f8fafc !important;">
-                                    <i class="fa fa-video fs-3 mb-2 opacity-50" style="color: var(--primary-orange);"></i>
+                                <div id="camPlaceholderText" class="cam-placeholder-box text-muted small">
+                                    <i class="fa fa-video fs-3 mb-2 opacity-50" style="color: var(--subdivision-orange);"></i>
                                     Webcam Stream Inactive
                                 </div>
                             </div>
                             <div class="d-grid gap-2">
                                 <button type="button" id="toggleCamBtn" class="btn btn-sm btn-dark fw-semibold py-2" onclick="startAdminCam()"><i class="fa fa-video me-2"></i>Turn On Device Camera</button>
-                                <button type="button" id="captureSnapBtn" class="btn btn-sm fw-bold text-white py-2" style="background-color: var(--primary-orange);" onclick="takeSnapshotStep('add')" disabled><i class="fa fa-camera me-2"></i>Snap Photo (<span id="snapCountLabel">0</span>/4)</button>
+                                <button type="button" id="captureSnapBtn" class="btn btn-sm btn-gradient-orange fw-bold py-2" onclick="takeSnapshotStep('add')" disabled><i class="fa fa-camera me-2"></i>Snap Photo (<span id="snapCountLabel">0</span>/4)</button>
                             </div>
                             
                             <div class="photo-grid">
@@ -843,7 +949,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-sm btn-secondary fw-semibold px-3" data-bs-dismiss="modal" onclick="stopAdminCam()">Discard</button>
-                    <button type="submit" name="add_resident_btn" id="submitFormBtn" class="btn btn-sm text-white fw-bold px-4" style="background-color: var(--primary-orange);" disabled>Save Profile</button>
+                    <button type="submit" name="add_resident_btn" id="submitFormBtn" class="btn btn-sm btn-gradient-orange fw-bold px-4" disabled>Save Profile</button>
                 </div>
             </form>
         </div>
@@ -855,7 +961,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0">
             <div class="modal-header border-bottom py-3">
-                <h5 class="modal-title fw-bold text-dark fs-6"><i class="fa fa-user-pen me-2 text-warning"></i>Modify Resident Profile Link</h5>
+                <h5 class="modal-title fw-bold text-dark fs-6"><i class="fa fa-user-pen me-2 text-warning"></i>Modify Resident Profile</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="stopEditAdminCam()"></button>
             </div>
             <form action="residents.php" method="POST" id="editResidentForm">
@@ -868,6 +974,13 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
                             <div>
                                 <label class="form-label small fw-bold text-dark">Full Name <span class="text-danger">*</span></label>
                                 <input type="text" name="edit_full_name" id="editFullName" class="form-control" required>
+                            </div>
+                            <div>
+                                <label class="form-label small fw-bold text-dark">Resident Type <span class="text-danger">*</span></label>
+                                <select name="edit_resident_type" id="editResidentType" class="form-select" required>
+                                    <option value="Homeowner">Homeowner</option>
+                                    <option value="Tenant">Tenant</option>
+                                </select>
                             </div>
                             <div class="row g-2">
                                 <div class="col-6">
@@ -921,13 +1034,13 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
                             <div id="editFaceCamState" style="display:none;">
                                 <div class="admin-cam-box mb-3 mx-auto">
                                     <video id="editAdminWebcam" autoplay playsinline muted></video>
-                                    <div id="editCamPlaceholderText" class="text-muted d-flex flex-column justify-content-center align-items-center h-100 bg-light small" style="position: absolute; width:100%; top:0; left:0; z-index: 5; background: #f8fafc !important;">
-                                        <i class="fa fa-camera fs-3 mb-2 opacity-50" style="color: var(--primary-orange);"></i>
+                                    <div id="editCamPlaceholderText" class="cam-placeholder-box text-muted small">
+                                        <i class="fa fa-camera fs-3 mb-2 opacity-50" style="color: var(--subdivision-orange);"></i>
                                         Camera System Idle
                                     </div>
                                 </div>
                                 <div class="d-grid gap-2">
-                                    <button type="button" id="editCaptureSnapBtn" class="btn btn-sm fw-bold text-white py-2" style="background-color: var(--primary-orange);" onclick="takeSnapshotStep('edit')"><i class="fa fa-camera me-2"></i>Snap Photo (<span id="editSnapCountLabel">0</span>/4)</button>
+                                    <button type="button" id="editCaptureSnapBtn" class="btn btn-sm btn-gradient-orange fw-bold py-2" onclick="takeSnapshotStep('edit')"><i class="fa fa-camera me-2"></i>Snap Photo (<span id="editSnapCountLabel">0</span>/4)</button>
                                     <button type="button" class="btn btn-sm btn-light border small text-secondary py-1" onclick="cancelCamRecapture()">Cancel Recapture</button>
                                 </div>
                                 <div class="photo-grid">
@@ -943,7 +1056,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-sm btn-secondary fw-semibold px-3" data-bs-dismiss="modal" onclick="stopEditAdminCam()">Cancel</button>
-                    <button type="submit" name="update_resident_btn" class="btn btn-sm text-white fw-bold px-4" style="background-color: var(--primary-orange);">Update Details</button>
+                    <button type="submit" name="update_resident_btn" class="btn btn-sm btn-gradient-orange fw-bold px-4">Update Details</button>
                 </div>
             </form>
         </div>
@@ -981,6 +1094,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function() {
+    const viewModal = new bootstrap.Modal(document.getElementById('viewResidentModal'));
     const editModal = new bootstrap.Modal(document.getElementById('editResidentModal'));
     const deleteModal = new bootstrap.Modal(document.getElementById('deleteResidentModal'));
 
@@ -996,11 +1110,9 @@ document.addEventListener("DOMContentLoaded", function() {
 
             tableRows.forEach(row => {
                 const name = row.querySelector('.search-target-name')?.textContent.toLowerCase() || '';
-                const email = row.querySelector('.search-target-email')?.textContent.toLowerCase() || '';
                 const house = row.querySelector('.search-target-house')?.textContent.toLowerCase() || '';
-                const plate = row.querySelector('.search-target-plate')?.textContent.toLowerCase() || '';
 
-                if (name.includes(query) || email.includes(query) || house.includes(query) || plate.includes(query)) {
+                if (name.includes(query) || house.includes(query)) {
                     row.style.display = '';
                     count++;
                 } else {
@@ -1012,12 +1124,48 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // Modal Trigger Handlers
+    // Modal Trigger Handlers: View
+    document.querySelectorAll('.view-resident-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.getElementById('viewFullName').textContent = this.dataset.name;
+            document.getElementById('viewResidentType').textContent = this.dataset.type || 'Homeowner';
+            document.getElementById('viewUsername').textContent = '@' + this.dataset.username;
+            document.getElementById('viewHouseNumber').textContent = this.dataset.house || 'N/A';
+            document.getElementById('viewEmail').textContent = this.dataset.email || 'N/A';
+            document.getElementById('viewContactNumber').textContent = this.dataset.contact || 'N/A';
+            
+            const plateContainer = document.getElementById('viewVehiclePlate');
+            if (this.dataset.vehicle && this.dataset.vehicle.trim() !== '') {
+                plateContainer.innerHTML = `<span class="plate-badge"><i class="fa fa-car"></i>${this.dataset.vehicle}</span>`;
+            } else {
+                plateContainer.innerHTML = `<span class="text-muted small fst-italic">No Vehicle</span>`;
+            }
+
+            const mediaPath = this.dataset.face;
+            const imgEl = document.getElementById('viewFaceImageDisplay');
+            const videoEl = document.getElementById('viewFaceVideoDisplay');
+
+            if (mediaPath.match(/\.(webm|mp4)$/i)) {
+                imgEl.style.display = 'none';
+                videoEl.src = mediaPath;
+                videoEl.style.display = 'block';
+            } else {
+                videoEl.style.display = 'none';
+                imgEl.src = mediaPath;
+                imgEl.style.display = 'block';
+            }
+
+            viewModal.show();
+        });
+    });
+
+    // Modal Trigger Handlers: Edit
     document.querySelectorAll('.edit-resident-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             document.getElementById('editResidentId').value = this.dataset.id;
             document.getElementById('editUserId').value = this.dataset.userid;
             document.getElementById('editFullName').value = this.dataset.name;
+            document.getElementById('editResidentType').value = this.dataset.type || 'Homeowner';
             document.getElementById('editHouseNumber').value = this.dataset.house;
             document.getElementById('editVehiclePlate').value = this.dataset.vehicle;
             document.getElementById('editContactNumber').value = this.dataset.contact;
@@ -1043,6 +1191,7 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     });
 
+    // Modal Trigger Handlers: Delete
     document.querySelectorAll('.delete-resident-trigger').forEach(btn => {
         btn.addEventListener('click', function() {
             document.getElementById('deleteResidentId').value = this.dataset.id;
@@ -1076,7 +1225,9 @@ async function startAdminCam() {
             audio: false 
         });
         video.srcObject = localStream;
-        placeholder.style.display = 'none';
+        await video.play();
+        
+        placeholder.style.setProperty('display', 'none', 'important');
         video.style.display = 'block';
         captureBtn.disabled = false;
         
@@ -1104,7 +1255,9 @@ async function startEditAdminCam() {
             audio: false 
         });
         video.srcObject = editLocalStream;
-        placeholder.style.display = 'none';
+        await video.play();
+
+        placeholder.style.setProperty('display', 'none', 'important');
         video.style.display = 'block';
         editCaptureBtn.disabled = false;
         
@@ -1161,8 +1314,12 @@ function stopAdminCam() {
         localStream.getTracks().forEach(track => track.stop());
         localStream = null;
     }
-    document.getElementById('adminWebcam').style.display = 'none';
-    document.getElementById('camPlaceholderText').style.display = 'flex';
+    const video = document.getElementById('adminWebcam');
+    const placeholder = document.getElementById('camPlaceholderText');
+    
+    if (video) video.style.display = 'none';
+    if (placeholder) placeholder.style.removeProperty('display');
+    
     document.getElementById('captureSuccessStatus').style.display = 'none';
     document.getElementById('captureSnapBtn').disabled = true;
     document.getElementById('addResidentForm').reset();
@@ -1173,8 +1330,12 @@ function stopEditAdminCam() {
         editLocalStream.getTracks().forEach(track => track.stop());
         editLocalStream = null;
     }
-    document.getElementById('editAdminWebcam').style.display = 'none';
-    document.getElementById('editCamPlaceholderText').style.display = 'flex';
+    const video = document.getElementById('editAdminWebcam');
+    const placeholder = document.getElementById('editCamPlaceholderText');
+
+    if (video) video.style.display = 'none';
+    if (placeholder) placeholder.style.removeProperty('display');
+
     document.getElementById('editCaptureSuccessStatus').style.display = 'none';
 }
 
