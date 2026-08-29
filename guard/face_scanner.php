@@ -156,6 +156,18 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
                             <span id="lblVerifiedRole" class="badge bg-primary px-2.5 py-1.5 fw-semibold" style="font-size:11px;">-</span>
                         </div>
 
+                        <!-- RESIDENT ROLE (Homeowner / Tenant) -->
+                        <div class="mb-4" id="boxResidentRole">
+                            <label class="text-muted small text-uppercase fw-bold d-block mb-1" style="font-size:11px;">Resident Type</label>
+                            <span id="lblVerifiedResidentType" class="badge bg-secondary px-2.5 py-1.5 fw-semibold" style="font-size:11px;">-</span>
+                        </div>
+
+                        <!-- PROPERTY ADDRESS (BLK & LOT) -->
+                        <div class="mb-4" id="boxResidentAddress">
+                            <label class="text-muted small text-uppercase fw-bold d-block mb-1" style="font-size:11px;">Property Address</label>
+                            <span id="lblVerifiedAddress" class="fw-bold text-dark d-block small" style="font-size:13px;">-</span>
+                        </div>
+
                         <div class="mb-4 bg-light border p-3 rounded shadow-sm">
                             <label class="text-muted small text-uppercase fw-bold d-block mb-2" style="font-size:11px;">Gate Transaction Activity</label>
                             <div class="d-flex align-items-center justify-content-between">
@@ -274,6 +286,39 @@ document.addEventListener("DOMContentLoaded", function() {
                 let rawRole = data.data.role_type ? data.data.role_type.toString().trim() : 'Service Contractor';
                 document.getElementById('lblVerifiedRole').textContent = rawRole;
                 
+                // Display Resident Role / Sub-Type (Homeowner / Tenant)
+                let residentType = data.data.resident_type || data.data.occupancy_type || data.data.household_role || data.data.type || 'Homeowner';
+                let boxRole = document.getElementById('boxResidentRole');
+                let lblResType = document.getElementById('lblVerifiedResidentType');
+
+                // Display Address (e.g., BLK 4 Lot 3)
+                let boxAddress = document.getElementById('boxResidentAddress');
+                let lblAddress = document.getElementById('lblVerifiedAddress');
+                let formattedAddress = '';
+
+                if (data.data.house_number) {
+                    formattedAddress = data.data.house_number;
+                } else if (data.data.address) {
+                    formattedAddress = data.data.address;
+                } else if (data.data.block_lot) {
+                    formattedAddress = data.data.block_lot;
+                } else if (data.data.block || data.data.lot) {
+                    let blk = data.data.block ? `BLK ${data.data.block}` : '';
+                    let lot = data.data.lot ? `LOT ${data.data.lot}` : '';
+                    let hno = data.data.house_no ? `House ${data.data.house_no}` : '';
+                    formattedAddress = [blk, lot, hno].filter(Boolean).join(' ');
+                }
+
+                if (rawRole.toLowerCase() === 'resident') {
+                    boxRole.classList.remove('d-none');
+                    boxAddress.classList.remove('d-none');
+                    lblResType.textContent = residentType;
+                    lblAddress.textContent = formattedAddress || 'Block N/A';
+                } else {
+                    boxRole.classList.add('d-none');
+                    boxAddress.classList.add('d-none');
+                }
+
                 let actionBadge = document.getElementById('lblLogActionBadge');
                 let personIdKey = rawRole + "_" + data.data.id;
                 let logTypeString = "entry"; 

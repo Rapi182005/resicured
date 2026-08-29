@@ -36,7 +36,7 @@ if ($page > $total_pages && $total_pages > 0) {
     $offset = ($page - 1) * $limit;
 }
 
-// 2. Fetch Paginated & Filtered Logs
+// 2. Fetch Paginated & Filtered Logs (Query updated to match visitors table schema)
 $logs_query = "
     SELECT 
         l.id,
@@ -49,7 +49,6 @@ $logs_query = "
         r_direct.house_number AS resident_house,
         -- Visitor info
         v.visitor_name AS visitor_name,
-        v.resident_id AS visitor_resident_id,
         -- Visited Host info
         r_host.full_name AS host_resident_name,
         r_host.house_number AS host_house_number,
@@ -58,13 +57,16 @@ $logs_query = "
         fp.role_type AS fp_category
     FROM access_logs l
     LEFT JOIN residents r_direct 
-        ON l.person_id = r_direct.id AND (l.person_type IS NULL OR l.person_type = '' OR l.person_type = 'resident')
+        ON (l.person_id = r_direct.id OR l.person_id = r_direct.user_id) 
+        AND (l.person_type IS NULL OR l.person_type = '' OR LOWER(l.person_type) = 'resident')
     LEFT JOIN visitors v 
-        ON l.person_id = v.id AND l.person_type = 'visitor'
+        ON (l.person_id = v.id) 
+        AND LOWER(l.person_type) LIKE '%visitor%'
     LEFT JOIN residents r_host 
         ON (v.resident_id = r_host.user_id OR v.resident_id = r_host.id)
     LEFT JOIN frequent_personnel fp 
-        ON l.person_id = fp.id AND l.person_type = 'frequent_personnel'
+        ON l.person_id = fp.id 
+        AND LOWER(l.person_type) = 'frequent_personnel'
     {$where_sql}
     ORDER BY l.id DESC 
     LIMIT {$limit} OFFSET {$offset}
@@ -218,6 +220,46 @@ $result = $conn->query($logs_query);
             </button>
         </div>
 
+        <!-- OVERDUE VISITORS ALERT BLOCK (DYNAMIC MULTI-DAY EXIT CHECK) -->
+        <?php
+        $overdue_query = "
+            SELECT 
+                v.visitor_name, 
+                v.time_in, 
+                COALESCE(v.exit_date, v.visit_date) AS expected_exit,
+                r.house_number, 
+                r.full_name AS host_name
+            FROM visitors v
+            LEFT JOIN residents r ON (v.resident_id = r.id OR v.resident_id = r.user_id)
+            WHERE v.time_in IS NOT NULL 
+              AND v.time_out IS NULL 
+              AND COALESCE(v.exit_date, v.visit_date) < CURRENT_DATE()
+        ";
+        $overdue_result = $conn->query($overdue_query);
+        ?>
+
+        <?php if ($overdue_result && $overdue_result->num_rows > 0): ?>
+            <div class="alert alert-danger border-0 shadow-sm d-flex align-items-start mb-4 p-3" role="alert" style="border-radius: 12px; background-color: #fef2f2; border-left: 5px solid #ef4444 !important;">
+                <i class="fa-solid fa-triangle-exclamation text-danger fs-4 me-3 mt-1"></i>
+                <div class="w-100">
+                    <strong class="text-danger d-block mb-1 fs-6">
+                        <i class="fa-solid fa-clock me-1"></i> Security Alert: Overdue Visitors (Expected Exit Date Exceeded)
+                    </strong>
+                    <ul class="mb-0 ps-3 small text-dark">
+                        <?php while ($overdue = $overdue_result->fetch_assoc()): ?>
+                            <li class="mb-1">
+                                <strong><?php echo htmlspecialchars($overdue['visitor_name']); ?></strong> 
+                                (Visiting: <?php echo !empty($overdue['house_number']) ? 'House ' . htmlspecialchars($overdue['house_number']) : 'Host Base'; ?> 
+                                <?php echo !empty($overdue['host_name']) ? ' - ' . htmlspecialchars($overdue['host_name']) : ''; ?>) 
+                                — Entry: <span class="badge bg-secondary"><?php echo date('M d, Y - h:i A', strtotime($overdue['time_in'])); ?></span>
+                                — Expected Exit: <span class="badge bg-danger"><?php echo date('M d, Y', strtotime($overdue['expected_exit'])); ?></span>
+                            </li>
+                        <?php endwhile; ?>
+                    </ul>
+                </div>
+            </div>
+        <?php endif; ?>
+
         <!-- TABLE CARD -->
         <div class="dashboard-card">
             <!-- HEADER WITH DATE FILTER -->
@@ -261,14 +303,19 @@ $result = $conn->query($logs_query);
                                 $classification = "Resident";
                                 $visitedHost = "Home Base";
 
-                                if ($personType === 'visitor') {
+                                if (strpos($personType, 'visitor') !== false) {
                                     $classification = "Visitor";
                                     $displayName = !empty($row['visitor_name']) ? $row['visitor_name'] : "Visitor #" . $row['person_id'];
                                     
-                                    if (!empty($row['host_house_number'])) {
-                                        $visitedHost = "House No. " . $row['host_house_number'];
+                                    if (!empty($row['host_house_number']) || !empty($row['host_resident_name'])) {
+                                        $visitedHost = "";
+                                        if (!empty($row['host_house_number'])) {
+                                            $visitedHost = preg_match('/blk|house|lot/i', $row['host_house_number']) 
+                                                ? $row['host_house_number'] 
+                                                : "House No. " . $row['host_house_number'];
+                                        }
                                         if (!empty($row['host_resident_name'])) {
-                                            $visitedHost .= " (" . $row['host_resident_name'] . ")";
+                                            $visitedHost .= (!empty($visitedHost) ? " (" . $row['host_resident_name'] . ")" : $row['host_resident_name']);
                                         }
                                     } else {
                                         $visitedHost = "Subdivision Guest";
@@ -284,7 +331,9 @@ $result = $conn->query($logs_query);
                                         $displayName = $row['resident_name'];
                                     }
                                     if (!empty($row['resident_house'])) {
-                                        $visitedHost = "House No. " . $row['resident_house'];
+                                        $visitedHost = preg_match('/blk|house|lot/i', $row['resident_house']) 
+                                            ? $row['resident_house'] 
+                                            : "House No. " . $row['resident_house'];
                                     }
                                 }
 

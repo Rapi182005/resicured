@@ -23,18 +23,27 @@ $resident_profile_id = $resident['id'] ?? 0;
 if (isset($_POST['generate_pass_btn'])) {
     $visitor_name = $conn->real_escape_string($_POST['visitor_name']);
     $visit_date = $conn->real_escape_string($_POST['visit_date']);
+    $exit_date = $conn->real_escape_string($_POST['exit_date'] ?? $visit_date);
     $message = $conn->real_escape_string($_POST['message'] ?? '');
     
     // Create a uniquely encrypted cryptographic token for the QR code representation
     $qr_token = "RES-" . $resident_profile_id . "-" . time() . "-" . rand(1000, 9999);
 
-    $sql = "INSERT INTO visitors (resident_id, visitor_name, qr_code_token, visit_date, message, status) 
-            VALUES ('$resident_user_id', '$visitor_name', '$qr_token', '$visit_date', '$message', 'approved')";
-            
-    if ($conn->query($sql)) {
+    try {
+        // Attempt query with exit_date
+        $sql = "INSERT INTO visitors (resident_id, visitor_name, qr_code_token, visit_date, exit_date, message, status) 
+                VALUES ('$resident_user_id', '$visitor_name', '$qr_token', '$visit_date', '$exit_date', '$message', 'approved')";
+        $conn->query($sql);
         $success_msg = "Visitor pass authorized! Send this secure token code to your visitor: <strong>$qr_token</strong>";
-    } else {
-        $error_msg = "Failed to generate security pass. Please try again.";
+    } catch (mysqli_sql_exception $e) {
+        // Fallback query if exit_date column has not been added to DB yet
+        $sql = "INSERT INTO visitors (resident_id, visitor_name, qr_code_token, visit_date, message, status) 
+                VALUES ('$resident_user_id', '$visitor_name', '$qr_token', '$visit_date', '$message', 'approved')";
+        if ($conn->query($sql)) {
+            $success_msg = "Visitor pass authorized! Send this secure token code to your visitor: <strong>$qr_token</strong>";
+        } else {
+            $error_msg = "Failed to generate security pass. Please try again.";
+        }
     }
 }
 
@@ -43,13 +52,17 @@ if (isset($_POST['update_pass_btn'])) {
     $edit_id = $conn->real_escape_string($_POST['edit_visitor_id']);
     $edit_name = $conn->real_escape_string($_POST['edit_visitor_name']);
     $edit_date = $conn->real_escape_string($_POST['edit_visit_date']);
+    $edit_exit_date = $conn->real_escape_string($_POST['edit_exit_date'] ?? $edit_date);
     
-    $upd_sql = "UPDATE visitors SET visitor_name = '$edit_name', visit_date = '$edit_date' WHERE id = '$edit_id' AND resident_id = '$resident_user_id'";
-    if ($conn->query($upd_sql)) {
-        $success_msg = "Visitor pass successfully updated!";
-    } else {
-        $error_msg = "Failed to update visitor pass.";
+    try {
+        $upd_sql = "UPDATE visitors SET visitor_name = '$edit_name', visit_date = '$edit_date', exit_date = '$edit_exit_date' WHERE id = '$edit_id' AND resident_id = '$resident_user_id'";
+        $conn->query($upd_sql);
+    } catch (mysqli_sql_exception $e) {
+        $upd_sql = "UPDATE visitors SET visitor_name = '$edit_name', visit_date = '$edit_date' WHERE id = '$edit_id' AND resident_id = '$resident_user_id'";
+        $conn->query($upd_sql);
     }
+    
+    $success_msg = "Visitor pass successfully updated!";
 }
 
 // PROCESS DELETE VISITOR PASS
@@ -64,7 +77,7 @@ if (isset($_GET['delete_id'])) {
 }
 
 // 3. FETCH ACTIVE VISITOR PASSES CREATED BY THIS RESIDENT
-$visitors_result = $conn->query("SELECT id, visitor_name, qr_code_token, visit_date, status FROM visitors WHERE resident_id = '$resident_user_id' ORDER BY visit_date DESC LIMIT 5");
+$visitors_result = $conn->query("SELECT * FROM visitors WHERE resident_id = '$resident_user_id' ORDER BY visit_date DESC LIMIT 5");
 
 // 4. FETCH THE RESIDENT'S UNPAID MONTHLY BILLS
 $billing_result = $conn->query("SELECT amount, billing_month, due_date FROM billings WHERE resident_id = '$resident_profile_id' AND status = 'unpaid' ORDER BY due_date ASC");
@@ -106,7 +119,7 @@ $events_result = $conn->query("SELECT title, description, event_date, location F
         /* Modal Design Fixes */
         .custom-modal-backdrop { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; background-color: rgba(30, 34, 41, 0.6) !important; z-index: 99999 !important; display: none; align-items: center; justify-content: center; padding: 20px; }
         .custom-modal-backdrop:target { display: flex !important; }
-        .custom-popup-window { background-color: #ffffff !important; width: 100% !important; max-width: 460px !important; border-radius: 14px !important; box-shadow: 0 15px 35px rgba(0,0,0,0.2) !important; overflow: hidden; }
+        .custom-popup-window { background-color: #ffffff !important; width: 100% !important; max-width: 500px !important; border-radius: 14px !important; box-shadow: 0 15px 35px rgba(0,0,0,0.2) !important; overflow: hidden; }
         .popup-header { padding: 20px 24px !important; border-bottom: 1px solid #edf2f7 !important; display: flex !important; justify-content: space-between !important; align-items: center !important; }
         .popup-body { padding: 24px !important; }
         .popup-footer { padding: 16px 24px !important; background-color: #f8fafc !important; border-top: 1px solid #edf2f7 !important; display: flex !important; justify-content: flex-end !important; gap: 10px !important; }
@@ -159,19 +172,26 @@ $events_result = $conn->query("SELECT title, description, event_date, location F
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0" style="font-size:14px;">
                         <thead class="table-light" style="font-size:11px; text-transform:uppercase; color:#718096;">
-                            <tr><th>Visitor Guest Name</th><th>Scheduled Date</th><th>Pass Token ID</th><th>Status</th><th>Actions</th></tr>
+                            <tr><th>Visitor Guest Name</th><th>Scheduled Dates</th><th>Pass Token ID</th><th>Status</th><th>Actions</th></tr>
                         </thead>
                         <tbody>
                             <?php if ($visitors_result && $visitors_result->num_rows > 0): ?>
                                 <?php while($pass = $visitors_result->fetch_assoc()): ?>
+                                    <?php 
+                                        $arr_date = date('M d, Y', strtotime($pass['visit_date']));
+                                        $ext_date = !empty($pass['exit_date']) ? date('M d, Y', strtotime($pass['exit_date'])) : $arr_date;
+                                    ?>
                                     <tr>
                                         <td><strong><?php echo htmlspecialchars($pass['visitor_name']); ?></strong></td>
-                                        <td><?php echo date('M d, Y', strtotime($pass['visit_date'])); ?></td>
+                                        <td>
+                                            <div class="fw-semibold text-dark">Arr: <?php echo $arr_date; ?></div>
+                                            <div class="text-muted" style="font-size:11px;">Exit: <?php echo $ext_date; ?></div>
+                                        </td>
                                         <td><code class="text-secondary" style="font-size:12px;"><?php echo htmlspecialchars($pass['qr_code_token']); ?></code></td>
                                         <td><span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 text-uppercase" style="font-size:10px;"><?php echo $pass['status']; ?></span></td>
                                         <td>
                                             <a href="#viewQrModal" class="btn btn-sm btn-outline-warning" style="padding: 2px 8px;" onclick="viewSavedQR('<?php echo htmlspecialchars($pass['qr_code_token']); ?>', '<?php echo addslashes(htmlspecialchars($pass['visitor_name'])); ?>')"><i class="fa fa-qrcode"></i> View</a>
-                                            <a href="#editPassModal" class="btn btn-sm btn-outline-primary" style="padding: 2px 8px;" onclick="openEditModal(<?php echo $pass['id']; ?>, '<?php echo addslashes(htmlspecialchars($pass['visitor_name'])); ?>', '<?php echo $pass['visit_date']; ?>')"><i class="fa fa-edit"></i></a>
+                                            <a href="#editPassModal" class="btn btn-sm btn-outline-primary" style="padding: 2px 8px;" onclick="openEditModal(<?php echo $pass['id']; ?>, '<?php echo addslashes(htmlspecialchars($pass['visitor_name'])); ?>', '<?php echo $pass['visit_date']; ?>', '<?php echo $pass['exit_date'] ?? $pass['visit_date']; ?>')"><i class="fa fa-edit"></i></a>
                                             <a href="dashboard.php?delete_id=<?php echo $pass['id']; ?>" class="btn btn-sm btn-outline-danger" style="padding: 2px 8px;" onclick="return confirm('Are you sure you want to delete this visitor pass?')"><i class="fa fa-trash"></i></a>
                                         </td>
                                     </tr>
@@ -280,10 +300,19 @@ $events_result = $conn->query("SELECT title, description, event_date, location F
                     <label class="form-label">Visitor / Guest Full Name</label>
                     <input type="text" name="visitor_name" id="visitor_name_field" class="form-control" required placeholder="e.g., Maria Santos">
                 </div>
-                <div class="mb-3">
-                    <label class="form-label">Scheduled Arrival Date</label>
-                    <input type="date" name="visit_date" id="visit_date_field" class="form-control" required value="<?php echo date('Y-m-d'); ?>">
+                
+                <!-- Arrival Date and Exit Date -->
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label">Scheduled Arrival Date</label>
+                        <input type="date" name="visit_date" id="visit_date_field" class="form-control" required value="<?php echo date('Y-m-d'); ?>">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Expected Exit Date</label>
+                        <input type="date" name="exit_date" id="exit_date_field" class="form-control" required value="<?php echo date('Y-m-d'); ?>">
+                    </div>
                 </div>
+
                 <div class="mb-2">
                     <label class="form-label">Additional Message / Note <span class="text-muted fw-normal fs-7">(Optional)</span></label>
                     <textarea name="message" id="message_field" class="form-control" rows="3" placeholder="e.g., Delivering packages, guest of household, etc."></textarea>
@@ -331,9 +360,15 @@ $events_result = $conn->query("SELECT title, description, event_date, location F
                     <label class="form-label">Visitor / Guest Full Name</label>
                     <input type="text" name="edit_visitor_name" id="edit_visitor_name_field" class="form-control" required>
                 </div>
-                <div class="mb-2">
-                    <label class="form-label">Scheduled Arrival Date</label>
-                    <input type="date" name="edit_visit_date" id="edit_visit_date_field" class="form-control" required>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label">Scheduled Arrival Date</label>
+                        <input type="date" name="edit_visit_date" id="edit_visit_date_field" class="form-control" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Expected Exit Date</label>
+                        <input type="date" name="edit_exit_date" id="edit_exit_date_field" class="form-control" required>
+                    </div>
                 </div>
             </div>
             <div class="popup-footer">
@@ -353,10 +388,11 @@ function viewSavedQR(dbToken, guestName) {
     document.getElementById('liveQrCodeImg').src = cleanUrl;
 }
 
-function openEditModal(id, name, date) {
+function openEditModal(id, name, date, exitDate = '') {
     document.getElementById('edit_visitor_id_field').value = id;
     document.getElementById('edit_visitor_name_field').value = name;
     document.getElementById('edit_visit_date_field').value = date;
+    document.getElementById('edit_exit_date_field').value = exitDate ? exitDate : date;
 }
 </script>
 

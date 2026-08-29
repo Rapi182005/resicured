@@ -11,14 +11,40 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
 if (file_exists('../config/database.php')) {
     require_once '../config/database.php';
     
-    $total_residents = $conn->query("SELECT COUNT(*) as total FROM residents")->fetch_assoc()['total'] ?? 0;
-    $pending_requests = $conn->query("SELECT COUNT(*) as total FROM requests WHERE status='pending'")->fetch_assoc()['total'] ?? 0;
-    $unpaid_bills = $conn->query("SELECT COUNT(*) as total FROM billings WHERE status='unpaid'")->fetch_assoc()['total'] ?? 0;
-    $income_data = $conn->query("SELECT SUM(amount) as total FROM cashflow WHERE transaction_type='income'")->fetch_assoc()['total'] ?? 0;
-    $expense_data = $conn->query("SELECT SUM(amount) as total FROM cashflow WHERE transaction_type='expense'")->fetch_assoc()['total'] ?? 0;
+    // Safely retrieve summary metrics with error checking
+    $res_res = $conn->query("SELECT COUNT(*) as total FROM residents");
+    $total_residents = ($res_res && $row = $res_res->fetch_assoc()) ? ($row['total'] ?? 0) : 0;
+
+    $res_req = $conn->query("SELECT COUNT(*) as total FROM requests WHERE status='pending'");
+    $pending_requests = ($res_req && $row = $res_req->fetch_assoc()) ? ($row['total'] ?? 0) : 0;
+
+    $res_bill = $conn->query("SELECT COUNT(*) as total FROM billings WHERE status='unpaid'");
+    $unpaid_bills = ($res_bill && $row = $res_bill->fetch_assoc()) ? ($row['total'] ?? 0) : 0;
+
+    $res_inc = $conn->query("SELECT SUM(amount) as total FROM cashflow WHERE transaction_type='income'");
+    $income_data = ($res_inc && $row = $res_inc->fetch_assoc()) ? ($row['total'] ?? 0) : 0;
+
+    $res_exp = $conn->query("SELECT SUM(amount) as total FROM cashflow WHERE transaction_type='expense'");
+    $expense_data = ($res_exp && $row = $res_exp->fetch_assoc()) ? ($row['total'] ?? 0) : 0;
+
+    // CAPTURE OVERDUE VISITORS (TIMED IN BUT NO TIME OUT PAST EXPECTED EXIT DATE ACROSS MULTIPLE DAYS)
+    $overdue_query = "
+        SELECT 
+            v.visitor_name, 
+            v.time_in, 
+            COALESCE(v.exit_date, v.visit_date) AS expected_exit,
+            r.house_number, 
+            r.full_name AS host_name
+        FROM visitors v
+        LEFT JOIN residents r ON (v.resident_id = r.id OR v.resident_id = r.user_id)
+        WHERE v.time_in IS NOT NULL 
+          AND v.time_out IS NULL 
+          AND COALESCE(v.exit_date, v.visit_date) < CURRENT_DATE()
+    ";
+    $overdue_result = $conn->query($overdue_query);
 
     // CAPTURE DATE FILTER SELECTION (Defaults to empty for "All Dates")
-    $filter_date = isset($_GET['filter_date']) ? $_GET['filter_date'] : '';
+    $filter_date = isset($_GET['filter_date']) ? trim($_GET['filter_date']) : '';
     
     $logs_query = "SELECT al.timestamp, al.log_type, al.person_type,
                    COALESCE(
@@ -37,11 +63,11 @@ if (file_exists('../config/database.php')) {
                    END as display_group
                    FROM access_logs al
                    LEFT JOIN residents r ON (al.person_id = r.id OR al.person_id = r.user_id) 
-                        AND (al.person_type = 'resident' OR al.person_type IS NULL OR al.person_type = '')
+                        AND (LOWER(al.person_type) = 'resident' OR al.person_type IS NULL OR al.person_type = '')
                    LEFT JOIN frequent_personnel fp ON al.person_id = fp.id 
-                        AND (al.person_type NOT IN ('resident', 'visitor') OR al.person_type IS NULL OR al.person_type = '')
+                        AND (LOWER(al.person_type) NOT IN ('resident', 'visitor') OR al.person_type IS NULL OR al.person_type = '')
                    LEFT JOIN visitors v ON al.person_id = v.id 
-                        AND (al.person_type = 'visitor' OR al.person_type IS NULL OR al.person_type = '')
+                        AND (LOWER(al.person_type) LIKE '%visitor%' OR al.person_type IS NULL OR al.person_type = '')
                    LEFT JOIN users u ON al.person_id = u.id";
                    
     // If a specific date is selected, filter rows strictly matching that calendar day
@@ -54,7 +80,7 @@ if (file_exists('../config/database.php')) {
     $logs_result = $conn->query($logs_query);
 } else {
     $total_residents = 0; $pending_requests = 0; $unpaid_bills = 0;
-    $income_data = 0; $expense_data = 0; $logs_result = false; $filter_date = '';
+    $income_data = 0; $expense_data = 0; $logs_result = false; $overdue_result = false; $filter_date = '';
 }
 ?>
 <!DOCTYPE html>
@@ -134,37 +160,34 @@ if (file_exists('../config/database.php')) {
             margin: 0 !important;
         }
 
-       .sidebar .nav-link {
-    color: #4a5568 !important;
-    font-size: 14px;
-    font-weight: 500;
-    padding: 12px 20px;
-    margin: 4px 16px;
-    border-radius: 8px;
-    display: flex !important;
-    align-items: center;
-    text-decoration: none !important;
-    transition: all 0.2s ease;
-}
+        .sidebar .nav-link {
+            color: #4a5568 !important;
+            font-size: 14px;
+            font-weight: 500;
+            padding: 12px 20px;
+            margin: 4px 16px;
+            border-radius: 8px;
+            display: flex !important;
+            align-items: center;
+            text-decoration: none !important;
+            transition: all 0.2s ease;
+        }
 
+        .sidebar .nav-link:not(.active):hover {
+            color: var(--subdivision-orange) !important;
+            background-color: rgba(230, 106, 0, 0.08) !important;
+        }
 
-.sidebar .nav-link:not(.active):hover {
-    color: var(--subdivision-orange) !important;
-    background-color: rgba(230, 106, 0, 0.08) !important;
-}
+        .sidebar .nav-link.active {
+            color: #ffffff !important;
+            background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%) !important;
+            font-weight: 600;
+        }
 
-
-.sidebar .nav-link.active {
-    color: #ffffff !important;
-    background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%) !important;
-    font-weight: 600;
-}
-
-
-.sidebar .nav-link.active:hover {
-    opacity: 0.92;
-    color: #ffffff !important;
-}
+        .sidebar .nav-link.active:hover {
+            opacity: 0.92;
+            color: #ffffff !important;
+        }
 
         .sidebar .nav-link i {
             font-size: 16px;
@@ -392,6 +415,29 @@ if (file_exists('../config/database.php')) {
             </div>
         </div>
 
+        <!-- OVERDUE VISITORS ALERT BLOCK (DYNAMIC MULTI-DAY EXIT CHECK) -->
+        <?php if ($overdue_result && $overdue_result->num_rows > 0): ?>
+            <div class="alert alert-danger border-0 shadow-sm d-flex align-items-start mb-4 p-3" role="alert" style="border-radius: 12px; background-color: #fef2f2; border-left: 5px solid #ef4444 !important;">
+                <i class="fa-solid fa-triangle-exclamation text-danger fs-4 me-3 mt-1"></i>
+                <div class="w-100">
+                    <strong class="text-danger d-block mb-1 fs-6">
+                        <i class="fa-solid fa-clock me-1"></i> Security Alert: Overdue Visitors (Expected Exit Date Exceeded)
+                    </strong>
+                    <ul class="mb-0 ps-3 small text-dark">
+                        <?php while ($overdue = $overdue_result->fetch_assoc()): ?>
+                            <li class="mb-1">
+                                <strong><?php echo htmlspecialchars($overdue['visitor_name']); ?></strong> 
+                                (Visiting: <?php echo !empty($overdue['house_number']) ? 'House ' . htmlspecialchars($overdue['house_number']) : 'Host Base'; ?> 
+                                <?php echo !empty($overdue['host_name']) ? ' - ' . htmlspecialchars($overdue['host_name']) : ''; ?>) 
+                                — Entry: <span class="badge bg-secondary"><?php echo date('M d, Y - h:i A', strtotime($overdue['time_in'])); ?></span>
+                                — Expected Exit: <span class="badge bg-danger"><?php echo date('M d, Y', strtotime($overdue['expected_exit'])); ?></span>
+                            </li>
+                        <?php endwhile; ?>
+                    </ul>
+                </div>
+            </div>
+        <?php endif; ?>
+
         <div class="metrics-grid">
             <div class="card-counter">
                 <div>
@@ -460,7 +506,7 @@ if (file_exists('../config/database.php')) {
                                     <?php 
                                         $display_name = !empty($log['person_name']) ? htmlspecialchars($log['person_name']) : "Unrecognized / Guest";
                                         $classification = !empty($log['display_group']) ? htmlspecialchars($log['display_group']) : "Visitor";
-                                        $action = strtolower($log['log_type']);
+                                        $action = strtolower($log['log_type'] ?? 'entry');
                                         $initials = strtoupper(substr($display_name, 0, 2));
                                     ?>
                                     <tr>
@@ -528,8 +574,8 @@ document.addEventListener("DOMContentLoaded", function() {
     
     const ctx = canvasElement.getContext('2d');
     
-    const grossIncome = <?php echo $income_data ? $income_data : '42000'; ?>;
-    const grossExpenses = <?php echo $expense_data ? $expense_data : '16000'; ?>;
+    const grossIncome = <?php echo !empty($income_data) ? (float)$income_data : 42000; ?>;
+    const grossExpenses = <?php echo !empty($expense_data) ? (float)$expense_data : 16000; ?>;
 
     new Chart(ctx, {
         type: 'bar',

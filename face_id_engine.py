@@ -61,7 +61,8 @@ def train_face_engine():
 
     # --- 1. Index subdivision residents ---
     try:
-        cursor.execute("SELECT id, user_id, full_name, face_template_path, 'Resident' as role_type, registered_vehicle_plate FROM residents WHERE face_template_path IS NOT NULL AND face_template_path != ''")
+        # SELECT * fetches all resident columns (resident_type, address, block, lot, etc.)
+        cursor.execute("SELECT *, 'Resident' as role_type FROM residents WHERE face_template_path IS NOT NULL AND face_template_path != ''")
         for row in cursor.fetchall():
             primary_path = os.path.normpath(os.path.join(base_dir, row['face_template_path']))
             res_id = str(row['id'])
