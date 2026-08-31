@@ -9,30 +9,49 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
 
 require_once '../config/database.php';
 
+// Generate CSRF Token for Form Security
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 $success_msg = "";
 $error_msg = "";
 
+// Detect current page filename dynamically for sidebar state
+$current_page = basename($_SERVER['PHP_SELF']);
+
 // ================= ACTION 1: MASS-GENERATE BILLS FOR MULTIPLE SELECTIONS =================
-if (isset($_POST['generate_bill_btn'])) {
-    if (!empty($_POST['resident_ids']) && is_array($_POST['resident_ids'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_bill_btn'])) {
+    // CSRF Protection Check
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        $error_msg = "Security validation failed. Invalid CSRF token.";
+    } elseif (!empty($_POST['resident_ids']) && is_array($_POST['resident_ids'])) {
         $resident_ids = $_POST['resident_ids'];
         $amount = floatval($_POST['amount']);
-        $billing_month = $conn->real_escape_string($_POST['billing_month']);
-        $due_date = $conn->real_escape_string($_POST['due_date']);
+        $billing_month = trim($_POST['billing_month']);
+        $due_date = trim($_POST['due_date']);
 
-        $conn->begin_transaction();
-        try {
-            foreach ($resident_ids as $res_id) {
-                $res_id = intval($res_id);
-                $conn->query("INSERT INTO billings (resident_id, amount, billing_month, due_date, status) 
-                              VALUES ($res_id, $amount, '$billing_month', '$due_date', 'unpaid')");
+        if ($amount <= 0 || empty($billing_month) || empty($due_date)) {
+            $error_msg = "Invalid input: Please ensure amount and billing details are completed.";
+        } else {
+            $conn->begin_transaction();
+            try {
+                // Prepared statement reuse for efficient batch execution
+                $stmt = $conn->prepare("INSERT INTO billings (resident_id, amount, billing_month, due_date, status) VALUES (?, ?, ?, ?, 'unpaid')");
+                
+                foreach ($resident_ids as $res_id) {
+                    $res_id_int = intval($res_id);
+                    $stmt->bind_param("idss", $res_id_int, $amount, $billing_month, $due_date);
+                    $stmt->execute();
+                }
+                $stmt->close();
+
+                $conn->commit();
+                $success_msg = "Successfully generated and issued " . count($resident_ids) . " statements of account.";
+            } catch (Exception $e) {
+                $conn->rollback();
+                $error_msg = "Failed to batch deploy invoice statements.";
             }
-
-            $conn->commit();
-            $success_msg = "Successfully generated and issued " . count($resident_ids) . " statements of account.";
-        } catch (Exception $e) {
-            $conn->rollback();
-            $error_msg = "Failed to batch deploy invoice statements.";
         }
     } else {
         $error_msg = "Invalid Action: Please select at least one resident before issuing.";
@@ -43,53 +62,78 @@ if (isset($_POST['generate_bill_btn'])) {
 if (isset($_GET['collect_bill_id'])) {
     $bill_id = intval($_GET['collect_bill_id']);
     
-    $bill_query = $conn->query("SELECT resident_id, amount, billing_month FROM billings WHERE id = $bill_id");
+    $bill_stmt = $conn->prepare("SELECT resident_id, amount, billing_month FROM billings WHERE id = ?");
+    $bill_stmt->bind_param("i", $bill_id);
+    $bill_stmt->execute();
+    $bill_result = $bill_stmt->get_result();
     
-    if ($bill_query && $bill_query->num_rows > 0) {
-        $bill_data = $bill_query->fetch_assoc();
-        $resident_id = $bill_data['resident_id'];
-        $amount = $bill_data['amount'];
-        $details = $conn->real_escape_string("HOA Dues - " . $bill_data['billing_month']);
+    if ($bill_result && $bill_result->num_rows > 0) {
+        $bill_data = $bill_result->fetch_assoc();
+        $amount = floatval($bill_data['amount']);
+        $details = "HOA Dues - " . $bill_data['billing_month'];
 
-        $update_status = $conn->query("UPDATE billings SET status = 'paid' WHERE id = $bill_id");
+        $update_stmt = $conn->prepare("UPDATE billings SET status = 'paid' WHERE id = ?");
+        $update_stmt->bind_param("i", $bill_id);
         
-        if ($update_status) {
+        if ($update_stmt->execute()) {
             $table_check = $conn->query("SHOW TABLES LIKE 'cashflow'");
             if ($table_check && $table_check->num_rows > 0) {
-                $conn->query("INSERT INTO cashflow (transaction_type, amount, details) VALUES ('income', $amount, '$details')");
+                $cashflow_stmt = $conn->prepare("INSERT INTO cashflow (transaction_type, amount, details) VALUES ('income', ?, ?)");
+                $cashflow_stmt->bind_param("ds", $amount, $details);
+                $cashflow_stmt->execute();
+                $cashflow_stmt->close();
             }
             
-            header("Location: billing.php?success=Payment collected successfully! Ledger updated.");
+            $update_stmt->close();
+            $bill_stmt->close();
+            header("Location: billing.php?success=" . urlencode("Payment collected successfully! Ledger updated."));
             exit();
         } else {
             $error_msg = "Failed to execute update statement: " . $conn->error;
         }
+        $update_stmt->close();
     } else {
         $error_msg = "Error: Invoice record matching ID (" . $bill_id . ") could not be found.";
     }
+    $bill_stmt->close();
 }
 
-if (isset($_GET['success'])) { $success_msg = $_GET['success']; }
+if (isset($_GET['success'])) { 
+    $success_msg = htmlspecialchars($_GET['success']); 
+}
 
 // ================= FILTER & SEARCH PREPARATION =================
 $filter_resident = isset($_GET['resident_id']) ? intval($_GET['resident_id']) : 0;
-$filter_status   = isset($_GET['status']) ? $conn->real_escape_string($_GET['status']) : '';
-$filter_year     = isset($_GET['year']) ? $conn->real_escape_string($_GET['year']) : '';
-$search_query    = isset($_GET['search']) ? trim($conn->real_escape_string($_GET['search'])) : '';
+$filter_status   = isset($_GET['status']) ? trim($_GET['status']) : '';
+$filter_year     = isset($_GET['year']) ? trim($_GET['year']) : '';
+$search_query    = isset($_GET['search']) ? trim($_GET['search']) : '';
 
 $where_clauses = [];
+$params = [];
+$types = "";
 
 if ($filter_resident > 0) {
-    $where_clauses[] = "b.resident_id = $filter_resident";
+    $where_clauses[] = "b.resident_id = ?";
+    $params[] = $filter_resident;
+    $types .= "i";
 }
 if (!empty($filter_status) && in_array($filter_status, ['paid', 'unpaid'])) {
-    $where_clauses[] = "b.status = '$filter_status'";
+    $where_clauses[] = "b.status = ?";
+    $params[] = $filter_status;
+    $types .= "s";
 }
-if (!empty($filter_year)) {
-    $where_clauses[] = "YEAR(b.due_date) = '$filter_year'";
+if (!empty($filter_year) && is_numeric($filter_year)) {
+    $where_clauses[] = "YEAR(b.due_date) = ?";
+    $params[] = $filter_year;
+    $types .= "s";
 }
 if (!empty($search_query)) {
-    $where_clauses[] = "(r.full_name LIKE '%$search_query%' OR r.house_number LIKE '%$search_query%' OR b.billing_month LIKE '%$search_query%')";
+    $where_clauses[] = "(r.full_name LIKE ? OR r.house_number LIKE ? OR b.billing_month LIKE ?)";
+    $search_param = "%" . $search_query . "%";
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $types .= "sss";
 }
 
 $where_sql = count($where_clauses) > 0 ? "WHERE " . implode(" AND ", $where_clauses) : "";
@@ -112,7 +156,15 @@ $ledger_query = "SELECT b.id as bill_id, b.amount, b.billing_month, b.due_date, 
                  JOIN residents r ON b.resident_id = r.id 
                  $where_sql
                  ORDER BY b.id DESC";
-$ledger_result = $conn->query($ledger_query);
+
+if (!empty($params)) {
+    $ledger_stmt = $conn->prepare($ledger_query);
+    $ledger_stmt->bind_param($types, ...$params);
+    $ledger_stmt->execute();
+    $ledger_result = $ledger_stmt->get_result();
+} else {
+    $ledger_result = $conn->query($ledger_query);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -147,25 +199,126 @@ $ledger_result = $conn->query($ledger_query);
 
         .page-wrapper { display: flex; min-height: 100vh; width: 100%; }
 
-        /* Left Sidebar Layout */
+        /* SIDEBAR STYLING (MATCHED TO HOUSEHOLD & RESIDENTS) */
         .sidebar {
-            width: 260px; min-width: 260px; background-color: #ffffff; border-right: 1px solid var(--border-color); padding-top: 24px;
-            display: flex; flex-direction: column; justify-content: space-between;
+            width: 250px !important;
+            min-width: 250px !important;
+            background-color: #ffffff !important;
+            border-right: 1px solid #f0f3f7 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            height: 100vh !important;
+            position: sticky !important;
+            top: 0 !important;
+            box-sizing: border-box !important;
+            padding-bottom: 16px;
+            z-index: 1000;
         }
-        .brand-logo-area { padding: 0 24px 20px 24px; display: flex; align-items: center; gap: 12px; }
-        .brand-logo-icon { color: var(--brand-orange); font-size: 1.6rem; }
-        .brand-logo-text { color: var(--brand-dark); font-size: 20px; font-weight: 800; letter-spacing: -0.5px; margin: 0; }
-        .sidebar-menu { list-style: none; padding: 0; margin: 0; }
-        .sidebar .nav-link { color: #475569; font-size: 14px; font-weight: 600; padding: 12px 20px; margin: 4px 16px; border-radius: 10px; display: flex; align-items: center; text-decoration: none; transition: all 0.2s ease; }
-        .sidebar .nav-link:hover { color: var(--brand-orange); background-color: #fff7ed; }
-        .sidebar .nav-link.active { color: #ffffff; background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); font-weight: 700; box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25); }
-        .sidebar .nav-link i { font-size: 16px; width: 28px; }
-        .logout-btn-container { padding-bottom: 24px; }
-        .logout-btn { background-color: #fef2f2; color: #dc2626 !important; border: 1px solid #fecaca; }
-        .logout-btn:hover { background-color: #dc2626 !important; color: #ffffff !important; }
+
+        .brand-logo-area {
+            padding: 24px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .brand-logo-icon { 
+            color: #ffffff; 
+            background: linear-gradient(135deg, #e65c00, #f06a00);
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            box-shadow: 0 4px 12px rgba(230, 92, 0, 0.35);
+        }
+
+        .brand-logo-text { 
+            color: #1e293b; 
+            font-size: 20px; 
+            font-weight: 700; 
+            margin: 0; 
+            letter-spacing: -0.4px;
+        }
+
+        .sidebar-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 20px 24px 8px 24px;
+            margin: 0;
+        }
+
+        .sidebar-menu { 
+            list-style: none !important; 
+            padding: 0 !important; 
+            margin: 0 !important; 
+        }
+
+        .sidebar .nav-link {
+            color: #334155 !important;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 10px 16px;
+            margin: 3px 14px;
+            border-radius: 12px;
+            display: flex !important;
+            align-items: center;
+            text-decoration: none !important;
+            transition: all 0.2s ease;
+        }
+
+        .sidebar .nav-link:not(.active):hover {
+            color: #e66a00 !important;
+            background-color: #fff7ed !important;
+        }
+
+        .sidebar .nav-link.active {
+            color: #ffffff !important;
+            background-color: #e65c00 !important;
+            box-shadow: 0 4px 12px rgba(230, 92, 0, 0.35);
+            font-weight: 600;
+        }
+
+        .sidebar .nav-link i {
+            font-size: 16px;
+            width: 24px;
+            text-align: center;
+            margin-right: 10px;
+        }
+
+        .logout-container {
+            padding: 16px;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .logout-btn {
+            background-color: #fef2f2 !important;
+            color: #334155 !important;
+            border: 1px solid #fecaca !important;
+            border-radius: 12px !important;
+            padding: 10px 16px !important;
+            font-weight: 600 !important;
+            display: flex !important;
+            align-items: center !important;
+            text-decoration: none !important;
+            transition: all 0.2s ease;
+            margin: 0 !important;
+        }
+
+        .logout-btn:hover {
+            background-color: #fee2e2 !important;
+            color: #dc2626 !important;
+        }
 
         /* Main Workspace */
-        .main-content { flex-grow: 1; padding: 36px 40px; background-color: var(--bg-light); box-sizing: border-box; }
+        .main-content { flex-grow: 1; padding: 36px 40px; background-color: var(--bg-light); box-sizing: border-box; max-width: calc(100vw - 250px); }
         .page-title { color: var(--brand-dark); font-weight: 800; letter-spacing: -0.5px; margin: 0; }
         
         .btn-brand { 
@@ -202,7 +355,7 @@ $ledger_result = $conn->query($ledger_query);
 
         .resident-avatar-badge { width: 36px; height: 36px; border-radius: 50%; background-color: #ffedd5; color: var(--brand-orange); font-weight: 800; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; margin-right: 12px; }
 
-        /* ================= PURE CSS MODAL BACKDROP ================= */
+        /* PURE CSS MODAL BACKDROP */
         .custom-modal-backdrop { 
             position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; 
             background-color: rgba(15, 23, 42, 0.6) !important; backdrop-filter: blur(4px); z-index: 99999 !important; 
@@ -254,27 +407,36 @@ $ledger_result = $conn->query($ledger_query);
 
 <div class="page-wrapper">
     
-    <!-- LEFT SIDEBAR -->
+    <!-- SIDEBAR -->
     <div class="sidebar">
         <div>
-            <div class="brand-logo-area border-bottom">
-                <i class="fa-solid fa-shield-halved brand-logo-icon"></i>
+            <div class="brand-logo-area">
+                <div class="brand-logo-icon">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
                 <h4 class="brand-logo-text">ResiCured</h4>
             </div>
-            <ul class="sidebar-menu mt-3">
-                <li><a href="dashboard.php" class="nav-link"><i class="fa fa-chart-pie"></i> Dashboard</a></li>
-                <li><a href="events.php" class="nav-link"><i class="fa fa-calendar-alt"></i> Events</a></li>
-                <li><a href="residents.php" class="nav-link"><i class="fa fa-users"></i> Residents</a></li>
-                <li><a href="face_registration.php" class="nav-link"><i class="fa fa-user-shield"></i> Personnel</a></li>
-                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests & Concerns</a></li>
-                <li><a href="billing.php" class="nav-link active"><i class="fa fa-credit-card"></i> Billing</a></li>
-                <li><a href="expenses.php" class="nav-link"><i class="fa fa-money-bill-transfer"></i> Expenses</a></li>
-                <li><a href="guards.php" class="nav-link"><i class="fa fa-user-lock"></i> Staff Guards</a></li>
+            
+            <div class="sidebar-section-title">MAIN MENU</div>
+            <ul class="sidebar-menu">
+                <li><a href="dashboard.php" class="nav-link <?= ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fa-solid fa-chart-pie"></i> Dashboard</a></li>
+                <li><a href="households.php" class="nav-link <?= ($current_page == 'households.php') ? 'active' : ''; ?>"><i class="fa-solid fa-house-user"></i> Household Directory</a></li>
+                <li><a href="residents.php" class="nav-link <?= ($current_page == 'residents.php') ? 'active' : ''; ?>"><i class="fa-solid fa-users"></i> Residents</a></li>
+                <li><a href="face_registration.php" class="nav-link <?= ($current_page == 'face_registration.php') ? 'active' : ''; ?>"><i class="fa-solid fa-user-gear"></i> Personnel</a></li>
+                <li><a href="guards.php" class="nav-link <?= ($current_page == 'guards.php') ? 'active' : ''; ?>"><i class="fa-solid fa-user-shield"></i> Staff Guards</a></li>
+            </ul>
+
+            <div class="sidebar-section-title">OPERATIONS</div>
+            <ul class="sidebar-menu">
+                <li><a href="events.php" class="nav-link <?= ($current_page == 'events.php') ? 'active' : ''; ?>"><i class="fa-solid fa-calendar-days"></i> Events</a></li>
+                <li><a href="requests.php" class="nav-link <?= ($current_page == 'requests.php') ? 'active' : ''; ?>"><i class="fa-solid fa-file-lines"></i> Requests & Concerns</a></li>
+                <li><a href="billing.php" class="nav-link <?= ($current_page == 'billing.php') ? 'active' : ''; ?>"><i class="fa-solid fa-credit-card"></i> Billing</a></li>
+                <li><a href="expenses.php" class="nav-link <?= ($current_page == 'expenses.php') ? 'active' : ''; ?>"><i class="fa-solid fa-money-bill-transfer"></i> Expenses</a></li>
             </ul>
         </div>
-        <div class="logout-btn-container">
-            <hr class="mx-3 text-muted">
-            <a href="../logout.php" class="nav-link logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
+
+        <div class="logout-container">
+            <a href="../logout.php" class="logout-btn"><i class="fa-solid fa-right-from-bracket me-2"></i> Logout</a>
         </div>
     </div>
 
@@ -444,7 +606,7 @@ $ledger_result = $conn->query($ledger_query);
                                     <td class="text-end" style="padding-right:24px;">
                                         <?php if($row['status'] == 'unpaid'): ?>
                                             <a href="billing.php?collect_bill_id=<?php echo $row['bill_id']; ?>" 
-                                               onclick="return confirm('Confirm processing cash remittance payment of ₱<?php echo number_format($row['amount'], 2); ?> for <?php echo htmlspecialchars($row['full_name']); ?>?');" 
+                                               onclick="return confirm('Confirm processing cash remittance payment of ₱<?php echo number_format($row['amount'], 2); ?> for <?php echo htmlspecialchars($row['full_name'], ENT_QUOTES); ?>?');" 
                                                class="action-link btn-collect">
                                                 <i class="fa-solid fa-cash-register"></i> Collect Payment
                                             </a>
@@ -477,6 +639,9 @@ $ledger_result = $conn->query($ledger_query);
             <a href="#" class="close-popup-btn">&times;</a>
         </div>
         <form action="billing.php" method="POST">
+            <!-- CSRF TOKEN -->
+            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+            
             <div class="popup-body">
                 
                 <div class="modal-field-block">

@@ -1,7 +1,7 @@
 <?php 
 session_start();
 
-// 1. SECURITY GATEWAY
+// 1. SECURITY GATEWAY: Kicks out unauthorized sessions
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
     header("Location: ../index.php?error=Unauthorized Access");
     exit();
@@ -59,135 +59,434 @@ $requests_query = "SELECT req.id as request_id, req.requester_type, req.request_
                    $where_clause
                    ORDER BY (req.status IS NULL OR req.status = '' OR req.status = 'pending') DESC, req.id DESC";
 $requests_result = $conn->query($requests_query);
+
+// Summary Counts
+$pending_count = 0;
+$resolved_count = 0;
+$total_count = 0;
+
+if ($requests_result) {
+    $total_count = $requests_result->num_rows;
+    // We will iterate or fetch all into array to count stats and retain row iteration
+    $all_rows = [];
+    while ($row = $requests_result->fetch_assoc()) {
+        $st = strtolower(trim($row['status'] ?? 'pending'));
+        if ($st === 'pending' || $st === '') $pending_count++;
+        if ($st === 'resolved' || $st === 'approved') $resolved_count++;
+        $all_rows[] = $row;
+    }
+}
+
+$current_page = basename($_SERVER['PHP_SELF']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ResiCured - Request & Concern Management</title>
+    <title>ResiCured - Requests & Concerns Hub</title>
+    <!-- Modern Typography: Plus Jakarta Sans -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
     <style>
         :root {
-            --subdivision-orange: #e66a00;
-            --subdivision-amber: #ffaa00;
+            --subdivision-orange: #ea580c;
+            --subdivision-amber: #f97316;
+            --subdivision-soft-orange: #fff7ed;
+            --subdivision-border: #ffedd5;
+            --bg-main: #f8fafc;
+            --sidebar-bg: #ffffff;
+            --text-heading: #0f172a;
+            --text-body: #334155;
+            --text-muted: #64748b;
             --text-dark: #2d3748;
-            --bg-light: #f8fafc;
+            --border-color: #e2e8f0;
+            --radius-lg: 14px;
+            --radius-md: 10px;
+            --radius-sm: 6px;
         }
 
-        body { background-color: var(--bg-light); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; }
-        .page-wrapper { display: flex; min-height: 100vh; width: 100%; }
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-body);
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
 
+        .page-wrapper {
+            display: flex;
+            min-height: 100vh;
+            width: 100%;
+        }
+
+        /* SIDEBAR STYLING (MATCHED TO RESIDENTS) */
         .sidebar {
-            width: 260px; min-width: 260px; background-color: #ffffff; border-right: 1px solid #e2e8f0; padding-top: 24px;
-            display: flex; flex-direction: column; justify-content: space-between;
+            width: 250px !important;
+            min-width: 250px !important;
+            background-color: #ffffff !important;
+            border-right: 1px solid #f0f3f7 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            height: 100vh !important;
+            position: sticky !important;
+            top: 0 !important;
+            box-sizing: border-box !important;
+            padding-bottom: 16px;
         }
-        .brand-logo-area { padding: 0 24px 20px 24px; display: flex; align-items: center; gap: 12px; }
-        .brand-logo-icon { color: var(--subdivision-orange); font-size: 1.6rem; }
-        .brand-logo-text { color: var(--text-dark); font-size: 20px; font-weight: 700; letter-spacing: -0.5px; margin: 0; }
-        .sidebar-menu { list-style: none; padding: 0; margin: 0; }
-        .sidebar .nav-link { color: #4a5568; font-size: 14px; font-weight: 500; padding: 12px 20px; margin: 4px 16px; border-radius: 8px; display: flex; align-items: center; text-decoration: none; transition: all 0.2s ease; }
-        .sidebar .nav-link:hover { color: var(--subdivision-orange); background-color: rgba(230, 106, 0, 0.05); }
-        .sidebar .nav-link.active { color: #ffffff; background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%); font-weight: 600; }
-        .sidebar .nav-link i { font-size: 16px; width: 28px; }
-        .logout-btn-container { padding-bottom: 24px; }
-        .logout-btn { background-color: #fff5f5; color: #c53030 !important; border: 1px solid #fed7d7; }
-        .logout-btn:hover { background-color: #e53e3e !important; color: #ffffff !important; }
 
-        .main-content { flex-grow: 1; padding: 40px; background-color: var(--bg-light); box-sizing: border-box; }
-        .page-title { color: var(--text-dark); font-weight: 700; letter-spacing: -0.5px; margin: 0; }
+        .brand-logo-area {
+            padding: 24px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid #f1f5f9;
+        }
 
+        .brand-logo-icon { 
+            color: #ffffff; 
+            background: linear-gradient(135deg, #e65c00, #f06a00);
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            box-shadow: 0 4px 12px rgba(230, 92, 0, 0.35);
+        }
+
+        .brand-logo-text { 
+            color: #1e293b; 
+            font-size: 20px; 
+            font-weight: 700; 
+            margin: 0; 
+            letter-spacing: -0.4px;
+        }
+
+        .sidebar-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 20px 24px 8px 24px;
+            margin: 0;
+        }
+
+        .sidebar-menu { 
+            list-style: none !important; 
+            padding: 0 !important; 
+            margin: 0 !important; 
+        }
+
+        .sidebar .nav-link {
+            color: #334155 !important;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 10px 16px;
+            margin: 3px 14px;
+            border-radius: 12px;
+            display: flex !important;
+            align-items: center;
+            text-decoration: none !important;
+            transition: all 0.2s ease;
+        }
+
+        .sidebar .nav-link:not(.active):hover {
+            color: #e66a00 !important;
+            background-color: #fff7ed !important;
+        }
+
+        .sidebar .nav-link.active {
+            color: #ffffff !important;
+            background-color: #e65c00 !important;
+            box-shadow: 0 4px 12px rgba(230, 92, 0, 0.35);
+            font-weight: 600;
+        }
+
+        .sidebar .nav-link i {
+            font-size: 16px;
+            width: 24px;
+            text-align: center;
+            margin-right: 10px;
+        }
+
+        .logout-container {
+            padding: 16px;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .logout-btn {
+            background-color: #fef2f2 !important;
+            color: #334155 !important;
+            border: 1px solid #fecaca !important;
+            border-radius: 12px !important;
+            padding: 10px 16px !important;
+            font-weight: 600 !important;
+            display: flex !important;
+            align-items: center !important;
+            text-decoration: none !important;
+            transition: all 0.2s ease;
+            margin: 0 !important;
+        }
+
+        .logout-btn:hover {
+            background-color: #fee2e2 !important;
+            color: #dc2626 !important;
+        }
+
+        /* MAIN CONTENT AREA */
+        .main-content {
+            flex-grow: 1;
+            padding: 32px 40px;
+            background-color: var(--bg-main);
+            max-width: calc(100vw - 250px);
+        }
+
+        .dashboard-title { 
+            color: var(--text-heading); 
+            font-weight: 800; 
+            font-size: 24px;
+            letter-spacing: -0.5px;
+            margin: 0; 
+        }
+
+        /* FILTER BUTTONS */
         .filter-btn {
-            padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none;
-            display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s ease; border: 1px solid #e2e8f0; background-color: #ffffff; color: #4a5568;
+            padding: 10px 20px;
+            border-radius: var(--radius-md);
+            font-size: 13.5px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+            border: 1px solid var(--border-color);
+            background-color: #ffffff;
+            color: var(--text-muted);
         }
-        .filter-btn:hover { border-color: var(--subdivision-orange); color: var(--subdivision-orange); }
-        .filter-btn.active { background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%); color: #ffffff; border-color: transparent; box-shadow: 0 2px 6px rgba(230, 106, 0, 0.25); }
+        .filter-btn:hover {
+            border-color: var(--subdivision-orange);
+            color: var(--subdivision-orange);
+        }
+        .filter-btn.active {
+            background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%);
+            color: #ffffff;
+            border-color: transparent;
+            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25);
+        }
 
-        .table-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.01); }
-        .custom-table { width: 100%; margin-bottom: 0; }
-        .custom-table th { background-color: #f8fafc; color: #718096; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e2e8f0; padding: 12px 16px; }
-        .custom-table td { color: var(--text-dark); font-size: 14px; padding: 16px; vertical-align: middle; border-bottom: 1px solid #edf2f7; }
-        
-        .action-link { padding: 6px 12px; border-radius: 6px; font-size: 13px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; border: none; }
-        .btn-view { background-color: #eff6ff; color: #2563eb; cursor: pointer; }
+        /* STAT CARDS */
+        .stat-card {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 18px 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .stat-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.15rem;
+        }
+
+        /* TABLE CARD */
+        .table-card { 
+            background: #ffffff; 
+            border: 1px solid var(--border-color); 
+            border-radius: var(--radius-lg); 
+            overflow: hidden; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+
+        .modern-table { margin-bottom: 0; border-collapse: separate; border-spacing: 0; }
+        .modern-table thead th {
+            background-color: #f8fafc;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 14px 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .modern-table tbody td {
+            padding: 16px 20px;
+            vertical-align: middle;
+            border-bottom: 1px solid #f1f5f9;
+            color: var(--text-body);
+            font-size: 13.5px;
+        }
+
+        /* ACTION CONTROLS & BADGES */
+        .action-link {
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            font-size: 12.5px;
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: none;
+            transition: all 0.2s ease;
+        }
+        .btn-view { background-color: #eff6ff; color: #2563eb; }
         .btn-view:hover { background-color: #dbeafe; color: #1d4ed8; }
         .btn-approve { background-color: #dcfce7; color: #15803d; }
+        .btn-approve:hover { background-color: #bbf7d0; color: #166534; }
         .btn-reject { background-color: #fee2e2; color: #dc2626; }
+        .btn-reject:hover { background-color: #fca5a5; color: #991b1b; }
         
-        .status-badge { font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 6px; letter-spacing: 0.3px; text-transform: uppercase; display: inline-block; }
-        .status-badge-pending { background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-        .status-badge-progress { background-color: #e0f2fe; color: #075985; border: 1px solid #bae6fd; }
-        .status-badge-resolved { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
-        .status-badge-closed { background-color: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
-        .status-badge-rejected { background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+        .status-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 5px 10px;
+            border-radius: 20px;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .status-badge-pending { background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+        .status-badge-progress { background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+        .status-badge-resolved { background-color: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+        .status-badge-closed { background-color: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+        .status-badge-rejected { background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+
+        .form-control {
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            padding: 8px 12px;
+            font-size: 13.5px;
+        }
+        .form-control:focus {
+            border-color: var(--subdivision-orange);
+            box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+        }
     </style>
 </head>
 <body>
 
 <div class="page-wrapper">
+    <!-- SIDEBAR -->
     <div class="sidebar">
         <div>
-            <div class="brand-logo-area border-bottom">
-                <i class="fa fa-shield-halved brand-logo-icon"></i>
+            <div class="brand-logo-area">
+                <div class="brand-logo-icon">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
                 <h4 class="brand-logo-text">ResiCured</h4>
             </div>
-            <ul class="sidebar-menu mt-3">
-                <li><a href="dashboard.php" class="nav-link"><i class="fa fa-chart-pie"></i> Dashboard</a></li>
-                <li><a href="events.php" class="nav-link"><i class="fa fa-calendar-alt"></i> Events</a></li>
-                <li><a href="residents.php" class="nav-link"><i class="fa fa-users"></i> Residents</a></li>
-                <li><a href="face_registration.php" class="nav-link"><i class="fa fa-user-shield"></i> Personnel</a></li>
-                <li><a href="requests.php" class="nav-link active"><i class="fa fa-file-alt"></i> Requests & Concerns</a></li>
-                <li><a href="billing.php" class="nav-link"><i class="fa fa-credit-card"></i> Billing</a></li>
-                <li><a href="expenses.php" class="nav-link"><i class="fa fa-money-bill-transfer"></i> Expenses</a></li>
-                <li><a href="guards.php" class="nav-link"><i class="fa fa-user-lock"></i> Staff Guards</a></li>
+            
+            <div class="sidebar-section-title">MAIN MENU</div>
+            <ul class="sidebar-menu">
+                <li><a href="dashboard.php" class="nav-link <?= ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fa-solid fa-chart-pie"></i> Dashboard</a></li>
+                <li><a href="households.php" class="nav-link <?= ($current_page == 'households.php') ? 'active' : ''; ?>"><i class="fa-solid fa-house-user"></i> Household Directory</a></li>
+                <li><a href="residents.php" class="nav-link <?= ($current_page == 'residents.php') ? 'active' : ''; ?>"><i class="fa-solid fa-users"></i> Residents</a></li>
+                <li><a href="face_registration.php" class="nav-link <?= ($current_page == 'face_registration.php') ? 'active' : ''; ?>"><i class="fa-solid fa-user-gear"></i> Personnel</a></li>
+                <li><a href="guards.php" class="nav-link <?= ($current_page == 'guards.php') ? 'active' : ''; ?>"><i class="fa-solid fa-user-shield"></i> Staff Guards</a></li>
+            </ul>
+
+            <div class="sidebar-section-title">OPERATIONS</div>
+            <ul class="sidebar-menu">
+                <li><a href="events.php" class="nav-link <?= ($current_page == 'events.php') ? 'active' : ''; ?>"><i class="fa-solid fa-calendar-days"></i> Events</a></li>
+                <li><a href="requests.php" class="nav-link <?= ($current_page == 'requests.php') ? 'active' : ''; ?>"><i class="fa-solid fa-file-lines"></i> Requests & Concerns</a></li>
+                <li><a href="billing.php" class="nav-link <?= ($current_page == 'billing.php') ? 'active' : ''; ?>"><i class="fa-solid fa-credit-card"></i> Billing</a></li>
+                <li><a href="expenses.php" class="nav-link <?= ($current_page == 'expenses.php') ? 'active' : ''; ?>"><i class="fa-solid fa-money-bill-transfer"></i> Expenses</a></li>
             </ul>
         </div>
-        <div class="logout-btn-container">
-            <hr class="mx-3 text-muted">
-            <a href="../logout.php" class="nav-link logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
+
+        <div class="logout-container">
+            <a href="../logout.php" class="logout-btn"><i class="fa-solid fa-right-from-bracket me-2"></i> Logout</a>
         </div>
     </div>
 
+    <!-- MAIN CONTAINER -->
     <div class="main-content">
-        <div class="d-flex justify-content-between align-items-center pb-3 mb-4 border-bottom">
+        <!-- HEADER TITLE -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
-                <h1 class="h3 page-title"><?php echo ($current_type === 'concern') ? 'Residents Concern Stream' : 'Residents Request Stream'; ?></h1>
-                <p class="text-muted small mb-0">
+                <h1 class="dashboard-title"><?php echo ($current_type === 'concern') ? 'Residents Concern Stream' : 'Residents Request Stream'; ?></h1>
+                <p class="text-muted small mb-0 mt-1">
                     <?php echo ($current_type === 'concern') ? 'Review house issues, noise complaints, and subdivision maintenance concerns.' : 'Review facility permit requests, gate clearance certificates, and amenities permissions.'; ?>
                 </p>
             </div>
         </div>
 
-        <div class="d-flex align-items-center gap-2 mb-4">
-            <a href="requests.php?type=request" class="filter-btn <?php echo ($current_type === 'request') ? 'active' : ''; ?>">
-                <i class="fa-solid fa-file-lines"></i> Requests Review
-            </a>
-            <a href="requests.php?type=concern" class="filter-btn <?php echo ($current_type === 'concern') ? 'active' : ''; ?>">
-                <i class="fa-solid fa-triangle-exclamation"></i> Concerns Review
-            </a>
+        <!-- STREAM SELECTION TABS & METRICS -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background-color: #fff7ed; color: #ea580c;">
+                        <i class="fa-solid fa-folder-open"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">Total Logged</div>
+                        <div class="fs-4 fw-bold text-dark"><?php echo $total_count; ?></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background-color: #fef3c7; color: #d97706;">
+                        <i class="fa-solid fa-clock"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">Awaiting Review</div>
+                        <div class="fs-4 fw-bold text-dark"><?php echo $pending_count; ?></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background-color: #dcfce7; color: #15803d;">
+                        <i class="fa-solid fa-circle-check"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">Resolved / Approved</div>
+                        <div class="fs-4 fw-bold text-dark"><?php echo $resolved_count; ?></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-center justify-content-between mb-4">
+            <div class="d-flex align-items-center gap-2">
+                <a href="requests.php?type=request" class="filter-btn <?php echo ($current_type === 'request') ? 'active' : ''; ?>">
+                    <i class="fa-solid fa-file-lines"></i> Requests Review
+                </a>
+                <a href="requests.php?type=concern" class="filter-btn <?php echo ($current_type === 'concern') ? 'active' : ''; ?>">
+                    <i class="fa-solid fa-triangle-exclamation"></i> Concerns Review
+                </a>
+            </div>
+            <input type="text" id="streamSearchInput" class="form-control form-control-sm" style="max-width:240px;" placeholder="Search resident or details...">
         </div>
 
         <?php if (!empty($success_msg)): ?>
-            <div class="alert alert-success alert-dismissible fade show d-flex align-items-center small p-3 mb-4" id="flashAlert" role="alert" style="border-radius:8px;">
-                <i class="fa-solid fa-circle-check me-2 fs-5"></i> 
-                <div><?php echo htmlspecialchars($success_msg); ?></div>
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
+            <div class="alert alert-success border-0 shadow-sm mb-4 small fw-medium" style="border-radius: var(--radius-md);"><i class="fa-solid fa-circle-check me-2"></i><?php echo htmlspecialchars($success_msg); ?></div>
         <?php endif; ?>
         <?php if (!empty($error_msg)): ?>
-            <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center small p-3 mb-4" id="flashAlert" role="alert" style="border-radius:8px;">
-                <i class="fa-solid fa-circle-exclamation me-2 fs-5"></i> 
-                <div><strong>Stream Exception:</strong> <?php echo htmlspecialchars($error_msg); ?></div>
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
+            <div class="alert alert-danger border-0 shadow-sm mb-4 small fw-medium" style="border-radius: var(--radius-md);"><i class="fa-solid fa-circle-exclamation me-2"></i><strong>Stream Exception:</strong> <?php echo htmlspecialchars($error_msg); ?></div>
         <?php endif; ?>
 
-        <div class="table-card">
+        <!-- TABLE CARD -->
+        <div class="table-card p-0">
             <div class="table-responsive">
-                <table class="table custom-table" id="requestsDataTable">
+                <table class="table modern-table align-middle" id="requestsDataTable">
                     <thead>
                         <tr>
                             <th>Submitting Household</th>
@@ -199,48 +498,50 @@ $requests_result = $conn->query($requests_query);
                         </tr>
                     </thead>
                     <tbody>
-                        <?php if ($requests_result && $requests_result->num_rows > 0): ?>
-                            <?php while($row = $requests_result->fetch_assoc()): 
+                        <?php if (count($all_rows) > 0): ?>
+                            <?php foreach ($all_rows as $row): 
                                 $modal_id = "viewRequestModal_" . $row['request_id'];
                                 $req_category = !empty(trim($row['requester_type'])) ? $row['requester_type'] : (($current_type === 'concern') ? 'House Concern' : 'General Request');
                                 $raw_status = trim($row['status'] ?? '');
                                 $status_clean = !empty($raw_status) ? strtolower($raw_status) : 'pending';
                             ?>
-                                <tr>
+                                <tr class="stream-row">
                                     <td>
-                                        <strong><?php echo htmlspecialchars($row['full_name']); ?></strong><br>
-                                        <small class="text-muted fw-bold"><i class="fa fa-home me-1"></i><?php echo htmlspecialchars($row['house_number']); ?></small>
+                                        <div class="fw-bold text-dark target-name"><?php echo htmlspecialchars($row['full_name']); ?></div>
+                                        <small class="text-muted fw-semibold"><i class="fa fa-home me-1 text-warning"></i><?php echo htmlspecialchars($row['house_number']); ?></small>
                                     </td>
                                     <td>
-                                        <span class="badge bg-light text-dark border px-2 py-1 fw-semibold" style="font-size:12px; text-transform: uppercase;">
+                                        <span class="badge bg-light text-dark border px-2 py-1 fw-semibold" style="font-size:11px; text-transform: uppercase;">
                                             <?php echo htmlspecialchars($req_category); ?>
                                         </span>
                                     </td>
-                                    <td style="max-width:300px; white-space: normal;"><span class="small text-secondary"><?php echo htmlspecialchars($row['request_details']); ?></span></td>
-                                    <td class="text-secondary small"><?php echo date('M d, Y, g:i A', strtotime($row['created_at'])); ?></td>
+                                    <td style="max-width:320px; white-space: normal;">
+                                        <span class="small text-secondary target-details"><?php echo htmlspecialchars($row['request_details']); ?></span>
+                                    </td>
+                                    <td class="text-secondary small fw-medium">
+                                        <?php echo date('M d, Y, g:i A', strtotime($row['created_at'])); ?>
+                                    </td>
                                     <td>
                                         <?php 
                                         if ($status_clean === 'pending') {
-                                            echo '<span class="status-badge status-badge-pending">Awaiting Review</span>';
+                                            echo '<span class="status-badge status-badge-pending"><i class="fa-solid fa-clock"></i> Awaiting Review</span>';
                                         } elseif ($status_clean === 'in_progress') {
-                                            echo '<span class="status-badge status-badge-progress">In Progress</span>';
-                                        } elseif ($status_clean === 'resolved') {
-                                            echo '<span class="status-badge status-badge-resolved">Resolved</span>';
-                                        } elseif ($status_clean === 'approved') {
-                                            echo '<span class="status-badge status-badge-resolved">Approved</span>';
+                                            echo '<span class="status-badge status-badge-progress"><i class="fa-solid fa-spinner fa-spin"></i> In Progress</span>';
+                                        } elseif ($status_clean === 'resolved' || $status_clean === 'approved') {
+                                            echo '<span class="status-badge status-badge-resolved"><i class="fa-solid fa-circle-check"></i> ' . ucfirst($status_clean) . '</span>';
                                         } elseif ($status_clean === 'rejected') {
-                                            echo '<span class="status-badge status-badge-rejected">Rejected</span>';
+                                            echo '<span class="status-badge status-badge-rejected"><i class="fa-solid fa-circle-xmark"></i> Rejected</span>';
                                         } elseif ($status_clean === 'dismissed' || $status_clean === 'closed') {
-                                            echo '<span class="status-badge status-badge-closed">Closed</span>';
+                                            echo '<span class="status-badge status-badge-closed"><i class="fa-solid fa-box-archive"></i> Closed</span>';
                                         } else {
-                                            echo '<span class="status-badge status-badge-pending">Awaiting Review</span>';
+                                            echo '<span class="status-badge status-badge-pending"><i class="fa-solid fa-clock"></i> Awaiting Review</span>';
                                         }
                                         ?>
                                     </td>
-                                    <td class="text-end" style="padding-right:20px;">
+                                    <td class="text-end" style="padding-right:24px;">
                                         <div class="d-inline-flex gap-1 align-items-center">
-                                            <button class="action-link btn-view" data-bs-toggle="modal" data-bs-target="#<?php echo $modal_id; ?>">
-                                                <i class="fa-solid fa-eye me-1"></i> View
+                                            <button type="button" class="action-link btn-view" data-bs-toggle="modal" data-bs-target="#<?php echo $modal_id; ?>">
+                                                <i class="fa-solid fa-eye"></i> View
                                             </button>
 
                                             <?php if ($current_type === 'concern'): ?>
@@ -278,12 +579,12 @@ $requests_result = $conn->query($requests_query);
                                                     <a href="requests.php?type=request&action=approve&id=<?php echo $row['request_id']; ?>" 
                                                        class="action-link btn-approve"
                                                        onclick="return confirm('Grant formal approval for this request?');">
-                                                        <i class="fa-solid fa-circle-check me-1"></i> Approve
+                                                        <i class="fa-solid fa-circle-check"></i> Approve
                                                     </a>
                                                     <a href="requests.php?type=request&action=reject&id=<?php echo $row['request_id']; ?>" 
                                                        class="action-link btn-reject"
                                                        onclick="return confirm('Decline this request?');">
-                                                        <i class="fa-solid fa-circle-xmark me-1"></i> Reject
+                                                        <i class="fa-solid fa-circle-xmark"></i> Reject
                                                     </a>
                                                 <?php else: ?>
                                                     <a href="requests.php?type=request&action=reopen&id=<?php echo $row['request_id']; ?>" 
@@ -294,63 +595,69 @@ $requests_result = $conn->query($requests_query);
                                                 <?php endif; ?>
                                             <?php endif; ?>
                                         </div>
-                                    </td>
-                                </tr>
 
-                                <div class="modal fade" id="<?php echo $modal_id; ?>" tabindex="-1" aria-hidden="true">
-                                    <div class="modal-dialog modal-dialog-centered">
-                                        <div class="modal-content border-0 shadow">
-                                            <div class="modal-header border-bottom bg-light">
-                                                <h5 class="modal-title fw-bold text-dark"><i class="fa-solid fa-file-invoice text-warning me-2"></i>Record Details</h5>
-                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                            </div>
-                                            <div class="modal-body p-4 text-start">
-                                                <div class="mb-3">
-                                                    <label class="text-muted small text-uppercase fw-bold">Submitting Resident</label>
-                                                    <div class="fw-bold text-dark fs-6"><?php echo htmlspecialchars($row['full_name']); ?></div>
-                                                    <div class="small text-secondary"><i class="fa fa-home me-1"></i><?php echo htmlspecialchars($row['house_number']); ?></div>
-                                                </div>
-                                                <div class="row mb-3">
-                                                    <div class="col-6">
-                                                        <label class="text-muted small text-uppercase fw-bold">Category</label>
-                                                        <div><span class="badge bg-light text-dark border px-2 py-1 fw-semibold"><?php echo htmlspecialchars($req_category); ?></span></div>
+                                        <!-- VIEW DETAIL MODAL -->
+                                        <div class="modal fade text-start" id="<?php echo $modal_id; ?>" tabindex="-1" aria-hidden="true">
+                                            <div class="modal-dialog modal-dialog-centered">
+                                                <div class="modal-content border-0">
+                                                    <div class="modal-header border-bottom py-3 bg-light">
+                                                        <h6 class="modal-title fw-bold text-dark fs-6"><i class="fa-solid fa-file-invoice text-warning me-2"></i>Record Details</h6>
+                                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                                                     </div>
-                                                    <div class="col-6">
-                                                        <label class="text-muted small text-uppercase fw-bold">Current State</label>
+                                                    <div class="modal-body p-4 bg-white">
+                                                        <div class="mb-3">
+                                                            <label class="text-muted small text-uppercase fw-bold">Submitting Resident</label>
+                                                            <div class="fw-bold text-dark fs-6"><?php echo htmlspecialchars($row['full_name']); ?></div>
+                                                            <div class="small text-secondary"><i class="fa fa-home me-1 text-warning"></i><?php echo htmlspecialchars($row['house_number']); ?></div>
+                                                        </div>
+                                                        <div class="row mb-3">
+                                                            <div class="col-6">
+                                                                <label class="text-muted small text-uppercase fw-bold">Category</label>
+                                                                <div><span class="badge bg-light text-dark border px-2 py-1 fw-semibold"><?php echo htmlspecialchars($req_category); ?></span></div>
+                                                            </div>
+                                                            <div class="col-6">
+                                                                <label class="text-muted small text-uppercase fw-bold">Current State</label>
+                                                                <div>
+                                                                    <?php 
+                                                                    if ($status_clean === 'pending') {
+                                                                        echo '<span class="status-badge status-badge-pending">Awaiting Review</span>';
+                                                                    } elseif ($status_clean === 'in_progress') {
+                                                                        echo '<span class="status-badge status-badge-progress">In Progress</span>';
+                                                                    } elseif ($status_clean === 'resolved' || $status_clean === 'approved') {
+                                                                        echo '<span class="status-badge status-badge-resolved">' . ucfirst($status_clean) . '</span>';
+                                                                    } else {
+                                                                        echo '<span class="status-badge status-badge-closed">Closed</span>';
+                                                                    }
+                                                                    ?>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <label class="text-muted small text-uppercase fw-bold">Date Filed</label>
+                                                            <div class="small text-dark fw-semibold"><?php echo date('F d, Y - h:i A', strtotime($row['created_at'])); ?></div>
+                                                        </div>
                                                         <div>
-                                                            <?php 
-                                                            if ($status_clean === 'pending') {
-                                                                echo '<span class="status-badge status-badge-pending">Awaiting Review</span>';
-                                                            } elseif ($status_clean === 'in_progress') {
-                                                                echo '<span class="status-badge status-badge-progress">In Progress</span>';
-                                                            } elseif ($status_clean === 'resolved' || $status_clean === 'approved') {
-                                                                echo '<span class="status-badge status-badge-resolved">' . ucfirst($status_clean) . '</span>';
-                                                            } else {
-                                                                echo '<span class="status-badge status-badge-closed">Closed</span>';
-                                                            }
-                                                            ?>
+                                                            <label class="text-muted small text-uppercase fw-bold">Detailed Narrative / Description</label>
+                                                            <div class="p-3 bg-light border rounded text-dark small mt-1" style="white-space: pre-wrap; word-break: break-word; border-radius: var(--radius-md);"><?php echo htmlspecialchars($row['request_details']); ?></div>
                                                         </div>
                                                     </div>
+                                                    <div class="modal-footer border-top bg-light">
+                                                        <button type="button" class="btn btn-sm btn-secondary fw-semibold px-4" data-bs-dismiss="modal">Close</button>
+                                                    </div>
                                                 </div>
-                                                <div class="mb-3">
-                                                    <label class="text-muted small text-uppercase fw-bold">Date Filed</label>
-                                                    <div class="small text-dark fw-semibold"><?php echo date('F d, Y - h:i A', strtotime($row['created_at'])); ?></div>
-                                                </div>
-                                                <div>
-                                                    <label class="text-muted small text-uppercase fw-bold">Detailed Narrative / Description</label>
-                                                    <div class="p-3 bg-light border rounded text-dark small" style="white-space: pre-wrap; word-break: break-word;"><?php echo htmlspecialchars($row['request_details']); ?></div>
-                                                </div>
-                                            </div>
-                                            <div class="modal-footer border-top bg-light">
-                                                <button type="button" class="btn btn-sm btn-secondary fw-semibold px-3" data-bs-dismiss="modal">Close</button>
                                             </div>
                                         </div>
-                                    </div>
-                                </div>
 
-                            <?php endwhile; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
                         <?php else: ?>
-                            <tr><td colspan="6" class="text-center py-5 text-muted"><i class="fa-regular fa-folder-open d-block mb-2 fs-3 text-secondary"></i>No <?php echo htmlspecialchars($current_type); ?> logged in stream.</td></tr>
+                            <tr>
+                                <td colspan="6" class="text-center py-5 text-muted">
+                                    <i class="fa-regular fa-folder-open d-block mb-2 fs-3 text-secondary opacity-50"></i>
+                                    No <?php echo htmlspecialchars($current_type); ?> entries logged in stream.
+                                </td>
+                            </tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -360,5 +667,21 @@ $requests_result = $conn->query($requests_query);
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    // Client-side Instant Filter Search
+    const searchInput = document.getElementById('streamSearchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const query = this.value.toLowerCase().trim();
+            document.querySelectorAll('#requestsDataTable .stream-row').forEach(row => {
+                const name = row.querySelector('.target-name')?.textContent.toLowerCase() || '';
+                const details = row.querySelector('.target-details')?.textContent.toLowerCase() || '';
+                row.style.display = (name.includes(query) || details.includes(query)) ? '' : 'none';
+            });
+        });
+    }
+});
+</script>
 </body>
 </html>

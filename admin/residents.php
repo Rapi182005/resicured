@@ -234,6 +234,8 @@ $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
 $total_residents = $conn->query("SELECT COUNT(*) as cnt FROM residents")->fetch_assoc()['cnt'] ?? 0;
 $total_vehicles = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE registered_vehicle_plate IS NOT NULL AND registered_vehicle_plate != ''")->fetch_assoc()['cnt'] ?? 0;
 $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_template_path IS NOT NULL AND face_template_path != ''")->fetch_assoc()['cnt'] ?? 0;
+
+$current_page = basename($_SERVER['PHP_SELF']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -248,8 +250,8 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
     
     <style>
         :root {
-            --subdivision-orange: #ea580c;
-            --subdivision-amber: #f97316;
+            --subdivision-orange: #e66a00;
+            --subdivision-amber: #ffaa00;
             --subdivision-soft-orange: #fff7ed;
             --subdivision-border: #ffedd5;
             --bg-main: #f8fafc;
@@ -257,6 +259,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             --text-heading: #0f172a;
             --text-body: #334155;
             --text-muted: #64748b;
+            --text-dark: #2d3748;
             --border-color: #e2e8f0;
             --radius-lg: 14px;
             --radius-md: 10px;
@@ -276,93 +279,129 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             width: 100%;
         }
 
-        /* UNIFIED DASHBOARD SIDEBAR STYLING */
+        /* SIDEBAR STYLING (MATCHED TO HOUSEHOLD) */
         .sidebar {
-            width: 260px;
-            background-color: var(--sidebar-bg);
-            border-right: 1px solid var(--border-color);
-            padding: 24px 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            position: sticky;
-            top: 0;
-            height: 100vh;
+            width: 250px !important;
+            min-width: 250px !important;
+            background-color: #ffffff !important;
+            border-right: 1px solid #f0f3f7 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            height: 100vh !important;
+            position: sticky !important;
+            top: 0 !important;
+            box-sizing: border-box !important;
+            padding-bottom: 16px;
         }
 
         .brand-logo-area {
-            padding: 0 20px 20px 20px;
+            padding: 24px 20px;
             display: flex;
             align-items: center;
             gap: 12px;
             border-bottom: 1px solid #f1f5f9;
         }
 
-        .brand-icon-box {
+        .brand-logo-icon { 
+            color: #ffffff; 
+            background: linear-gradient(135deg, #e65c00, #f06a00);
             width: 40px;
             height: 40px;
-            background: linear-gradient(135deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%);
-            color: white;
-            border-radius: var(--radius-md);
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.1rem;
-            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25);
+            font-size: 1.2rem;
+            box-shadow: 0 4px 12px rgba(230, 92, 0, 0.35);
         }
 
-        .brand-logo-text {
-            color: var(--text-heading);
-            font-size: 19px;
-            font-weight: 800;
-            letter-spacing: -0.5px;
+        .brand-logo-text { 
+            color: #1e293b; 
+            font-size: 20px; 
+            font-weight: 700; 
+            margin: 0; 
+            letter-spacing: -0.4px;
+        }
+
+        .sidebar-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 20px 24px 8px 24px;
             margin: 0;
         }
 
-        .sidebar-menu { list-style: none; padding: 0; margin: 16px 0 0 0; }
+        .sidebar-menu { 
+            list-style: none !important; 
+            padding: 0 !important; 
+            margin: 0 !important; 
+        }
 
         .sidebar .nav-link {
-            color: #4a5568 !important;
+            color: #334155 !important;
             font-size: 14px;
-            font-weight: 500;
-            padding: 12px 20px;
-            margin: 4px 16px;
-            border-radius: 8px;
+            font-weight: 600;
+            padding: 10px 16px;
+            margin: 3px 14px;
+            border-radius: 12px;
             display: flex !important;
             align-items: center;
-            gap: 12px;
             text-decoration: none !important;
             transition: all 0.2s ease;
         }
 
         .sidebar .nav-link:not(.active):hover {
-            color: var(--subdivision-orange) !important;
-            background-color: rgba(234, 88, 12, 0.08) !important;
+            color: #e66a00 !important;
+            background-color: #fff7ed !important;
         }
 
         .sidebar .nav-link.active {
             color: #ffffff !important;
-            background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%) !important;
+            background-color: #e65c00 !important;
+            box-shadow: 0 4px 12px rgba(230, 92, 0, 0.35);
             font-weight: 600;
-            border: none !important;
-            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25);
         }
 
-        .sidebar .nav-link i { font-size: 16px; width: 20px; text-align: center; }
-
-        .logout-btn { 
-            background-color: #fef2f2; 
-            color: #dc2626 !important; 
-            border: 1px solid #fee2e2; 
+        .sidebar .nav-link i {
+            font-size: 16px;
+            width: 24px;
+            text-align: center;
+            margin-right: 10px;
         }
-        .logout-btn:hover { background-color: #dc2626 !important; color: #ffffff !important; }
+
+        .logout-container {
+            padding: 16px;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .logout-btn {
+            background-color: #fef2f2 !important;
+            color: #334155 !important;
+            border: 1px solid #fecaca !important;
+            border-radius: 12px !important;
+            padding: 10px 16px !important;
+            font-weight: 600 !important;
+            display: flex !important;
+            align-items: center !important;
+            text-decoration: none !important;
+            transition: all 0.2s ease;
+            margin: 0 !important;
+        }
+
+        .logout-btn:hover {
+            background-color: #fee2e2 !important;
+            color: #dc2626 !important;
+        }
 
         /* MAIN CONTENT AREA */
         .main-content {
             flex-grow: 1;
             padding: 32px 40px;
             background-color: var(--bg-main);
-            max-width: calc(100vw - 260px);
+            max-width: calc(100vw - 250px);
         }
 
         .dashboard-title { 
@@ -378,13 +417,13 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
             background: linear-gradient(90deg, var(--subdivision-orange) 0%, var(--subdivision-amber) 100%);
             color: #ffffff !important;
             border: none;
-            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.2);
+            box-shadow: 0 4px 12px rgba(230, 106, 0, 0.2);
             transition: all 0.2s ease;
         }
         .btn-gradient-orange:hover {
             opacity: 0.92;
             transform: translateY(-1px);
-            box-shadow: 0 6px 16px rgba(234, 88, 12, 0.3);
+            box-shadow: 0 6px 16px rgba(230, 106, 0, 0.3);
         }
 
         /* STAT CARDS */
@@ -449,7 +488,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
 
         .search-box input:focus {
             border-color: var(--subdivision-orange);
-            box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+            box-shadow: 0 0 0 3px rgba(230, 106, 0, 0.12);
         }
 
         /* MODERN TABLE CARD */
@@ -630,7 +669,7 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
         }
         .form-control:focus, .form-select:focus {
             border-color: var(--subdivision-orange);
-            box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+            box-shadow: 0 0 0 3px rgba(230, 106, 0, 0.12);
         }
     </style>
 </head>
@@ -641,24 +680,32 @@ $total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_te
     <div class="sidebar">
         <div>
             <div class="brand-logo-area">
-                <div class="brand-icon-box">
-                    <i class="fa fa-shield-halved"></i>
+                <div class="brand-logo-icon">
+                    <i class="fa-solid fa-shield-halved"></i>
                 </div>
                 <h4 class="brand-logo-text">ResiCured</h4>
             </div>
-             <ul class="sidebar-menu mt-3">
-                <li><a href="dashboard.php" class="nav-link"><i class="fa fa-chart-pie"></i> Dashboard</a></li>
-                <li><a href="events.php" class="nav-link"><i class="fa fa-calendar-alt"></i> Events</a></li>
-                <li><a href="residents.php" class="nav-link active"><i class="fa fa-users"></i> Residents</a></li>
-                <li><a href="face_registration.php" class="nav-link"><i class="fa fa-user-shield"></i> Personnel</a></li>
-                <li><a href="requests.php" class="nav-link"><i class="fa fa-file-alt"></i> Requests & Concerns</a></li>
-                <li><a href="billing.php" class="nav-link"><i class="fa fa-credit-card"></i> Billing</a></li>
-                <li><a href="expenses.php" class="nav-link"><i class="fa fa-money-bill-transfer"></i> Expenses</a></li>
-                <li><a href="guards.php" class="nav-link"><i class="fa fa-user-lock"></i> Staff Guards</a></li>
+            
+            <div class="sidebar-section-title">MAIN MENU</div>
+            <ul class="sidebar-menu">
+                <li><a href="dashboard.php" class="nav-link <?= ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fa-solid fa-chart-pie"></i> Dashboard</a></li>
+                <li><a href="households.php" class="nav-link <?= ($current_page == 'households.php') ? 'active' : ''; ?>"><i class="fa-solid fa-house-user"></i> Household Directory</a></li>
+                <li><a href="residents.php" class="nav-link <?= ($current_page == 'residents.php') ? 'active' : ''; ?>"><i class="fa-solid fa-users"></i> Residents</a></li>
+                <li><a href="face_registration.php" class="nav-link <?= ($current_page == 'face_registration.php') ? 'active' : ''; ?>"><i class="fa-solid fa-user-gear"></i> Personnel</a></li>
+                <li><a href="guards.php" class="nav-link <?= ($current_page == 'guards.php') ? 'active' : ''; ?>"><i class="fa-solid fa-user-shield"></i> Staff Guards</a></li>
+            </ul>
+
+            <div class="sidebar-section-title">OPERATIONS</div>
+            <ul class="sidebar-menu">
+                <li><a href="events.php" class="nav-link <?= ($current_page == 'events.php') ? 'active' : ''; ?>"><i class="fa-solid fa-calendar-days"></i> Events</a></li>
+                <li><a href="requests.php" class="nav-link <?= ($current_page == 'requests.php') ? 'active' : ''; ?>"><i class="fa-solid fa-file-lines"></i> Requests & Concerns</a></li>
+                <li><a href="billing.php" class="nav-link <?= ($current_page == 'billing.php') ? 'active' : ''; ?>"><i class="fa-solid fa-credit-card"></i> Billing</a></li>
+                <li><a href="expenses.php" class="nav-link <?= ($current_page == 'expenses.php') ? 'active' : ''; ?>"><i class="fa-solid fa-money-bill-transfer"></i> Expenses</a></li>
             </ul>
         </div>
-        <div>
-            <a href="../logout.php" class="nav-link logout-btn"><i class="fa fa-sign-out-alt"></i> Logout</a>
+
+        <div class="logout-container">
+            <a href="../logout.php" class="logout-btn"><i class="fa-solid fa-right-from-bracket me-2"></i> Logout</a>
         </div>
     </div>
 
