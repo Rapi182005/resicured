@@ -34,23 +34,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_bill_btn']))
         if ($amount <= 0 || empty($billing_month) || empty($due_date)) {
             $error_msg = "Invalid input: Please ensure amount and billing details are completed.";
         } else {
+            // Require Gmail sending script from project root
+            if (file_exists('../guard/send_gmail.php')) {
+                require_once '../guard/send_gmail.php';
+            }
+
             $conn->begin_transaction();
             try {
                 // Prepared statement reuse for efficient batch execution
                 $stmt = $conn->prepare("INSERT INTO billings (resident_id, amount, billing_month, due_date, status) VALUES (?, ?, ?, ?, 'unpaid')");
                 
+                // Query to get resident email from users table
+                $res_stmt = $conn->prepare("SELECT r.full_name, u.email FROM residents r JOIN users u ON r.user_id = u.id WHERE r.id = ?");
+
                 foreach ($resident_ids as $res_id) {
                     $res_id_int = intval($res_id);
                     $stmt->bind_param("idss", $res_id_int, $amount, $billing_month, $due_date);
                     $stmt->execute();
+
+                    // Fetch email & name to send billing notification
+                    if ($res_stmt) {
+                        $res_stmt->bind_param("i", $res_id_int);
+                        $res_stmt->execute();
+                        $res_result = $res_stmt->get_result();
+                        
+                        if ($res_row = $res_result->fetch_assoc()) {
+                            if (!empty($res_row['email']) && function_exists('sendBillingNotification')) {
+                                try {
+                                    sendBillingNotification($res_row['email'], $res_row['full_name'], $billing_month, $amount, $due_date);
+                                } catch (\Throwable $e) {
+                                    error_log("Billing Email Alert Failed: " . $e->getMessage());
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if ($res_stmt) {
+                    $res_stmt->close();
                 }
                 $stmt->close();
 
                 $conn->commit();
-                $success_msg = "Successfully generated and issued " . count($resident_ids) . " statements of account.";
+                $success_msg = "Successfully generated and issued " . count($resident_ids) . " statements of account with email notifications.";
             } catch (Exception $e) {
                 $conn->rollback();
-                $error_msg = "Failed to batch deploy invoice statements.";
+                $error_msg = "Failed to batch deploy invoice statements: " . $e->getMessage();
             }
         }
     } else {
