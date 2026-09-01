@@ -180,8 +180,11 @@ document.addEventListener("DOMContentLoaded", function() {
                 document.getElementById('emptyDataBox').classList.remove('d-none');
                 lastScannedToken = ""; isProcessing = false;
             }
-        }).catch(() => { isProcessing = false; lastScannedToken = ""; });
-    }
+    }).catch(err => { 
+    isProcessing = false; 
+    lastScannedToken = ""; 
+    showFeedback("Server execution error or invalid JSON response.", "danger");
+    });    }
 
     function showFeedback(m, t) {
         const b = document.getElementById('systemAuthFeedback');
