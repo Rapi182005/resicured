@@ -87,4 +87,19 @@ function sendBillingNotification($recipientEmail, $residentName, $billingMonth, 
 
     return sendGmailApi($recipientEmail, $subject, $body);
 }
+
+
+/**
+ * Send Account Verification Code to Resident
+ */
+function sendVerificationCode($recipientEmail, $residentName, $code) {
+    $subject = "Account Verification Code - ResiCured";
+    $body = "Hello {$residentName},\n\n"
+          . "Your resident profile has been created by the administrator.\n\n"
+          . "Your 6-digit verification code is: {$code}\n\n"
+          . "Please enter this code on the activation page to confirm your email and activate your account.\n\n"
+          . "Regards,\nResiCured Admin";
+
+    return sendGmailApi($recipientEmail, $subject, $body);
+}
 ?>

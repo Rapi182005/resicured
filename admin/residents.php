@@ -12,6 +12,7 @@ require_once '../config/database.php';
 
 $success_msg = "";
 $error_msg = "";
+$show_verify_modal = false;
 
 // Helper function to process and save Base64 media data
 function saveBase64Media($base64_data, $user_id, $index = 1) {
@@ -47,7 +48,7 @@ function saveBase64Media($base64_data, $user_id, $index = 1) {
     return NULL;
 }
 
-// ================= ACTION: PROCESS NEW RESIDENT REGISTRATION WITH FACE ID =================
+// ================= ACTION: STAGE NEW RESIDENT & SEND VERIFICATION CODE =================
 if (isset($_POST['add_resident_btn'])) {
     $full_name = trim($_POST['full_name']);
     $resident_type = trim($_POST['resident_type'] ?? 'Homeowner');
@@ -65,31 +66,74 @@ if (isset($_POST['add_resident_btn'])) {
     $img4 = $_POST['resident_img_4'] ?? '';
 
     if (!empty($full_name) && !empty($username) && !empty($email) && !empty($img1)) {
+        // Generate 6-digit verification code
+        $verification_code = sprintf("%06d", mt_rand(1, 999999));
+
+        // Dispatch verification email via Gmail API before inserting into database
+        if (file_exists('../guard/send_gmail.php')) {
+            require_once '../guard/send_gmail.php';
+            if (function_exists('sendVerificationCode')) {
+                sendVerificationCode($email, $full_name, $verification_code);
+            }
+        }
+
+        // Temporarily store in session memory
+        $_SESSION['pending_resident'] = [
+            'full_name' => $full_name,
+            'resident_type' => $resident_type,
+            'email' => $email,
+            'contact_number' => $contact_number,
+            'house_number' => $house_number,
+            'vehicle_plate' => $vehicle_plate,
+            'username' => $username,
+            'password' => $password,
+            'img1' => $img1,
+            'img2' => $img2,
+            'img3' => $img3,
+            'img4' => $img4,
+            'code' => $verification_code
+        ];
+
+        $success_msg = "Verification code sent to " . htmlspecialchars($email) . ". Please enter the code below to finalize saving the resident profile.";
+        $show_verify_modal = true;
+    } else {
+        $error_msg = "Please fill in all mandatory core profile fields and snap images.";
+    }
+}
+
+// ================= ACTION: VERIFY CODE & COMMIT TO DATABASE =================
+if (isset($_POST['verify_resident_code_btn'])) {
+    $entered_code = trim($_POST['verification_code'] ?? '');
+
+    if (isset($_SESSION['pending_resident']) && $entered_code === $_SESSION['pending_resident']['code']) {
+        $p = $_SESSION['pending_resident'];
+
         $conn->begin_transaction();
         try {
-            $stmt1 = $conn->prepare("INSERT INTO users (username, password, email, role) VALUES (?, ?, ?, 'resident')");
-            $stmt1->bind_param("sss", $username, $password, $email);
+            // 1. Insert into users table
+            $stmt1 = $conn->prepare("INSERT INTO users (username, password, email, role, verification_code, is_verified) VALUES (?, ?, ?, 'resident', ?, 1)");
+            $stmt1->bind_param("ssss", $p['username'], $p['password'], $p['email'], $p['code']);
             $stmt1->execute();
             $new_user_id = $conn->insert_id;
 
-            // Save individual image records
-            $saved_file_path = saveBase64Media($img1, $new_user_id, 1);
-            $path2 = saveBase64Media($img2, $new_user_id, 2);
-            $path3 = saveBase64Media($img3, $new_user_id, 3);
-            $path4 = saveBase64Media($img4, $new_user_id, 4);
+            // 2. Save individual image records
+            $saved_file_path = saveBase64Media($p['img1'], $new_user_id, 1);
+            $path2 = saveBase64Media($p['img2'], $new_user_id, 2);
+            $path3 = saveBase64Media($p['img3'], $new_user_id, 3);
+            $path4 = saveBase64Media($p['img4'], $new_user_id, 4);
 
+            // 3. Insert into residents table
             $stmt2 = $conn->prepare("INSERT INTO residents (user_id, full_name, resident_type, house_number, face_template_path, contact_number, registered_vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt2->bind_param("issssss", $new_user_id, $full_name, $resident_type, $house_number, $saved_file_path, $contact_number, $vehicle_plate);
+            $stmt2->bind_param("issssss", $new_user_id, $p['full_name'], $p['resident_type'], $p['house_number'], $saved_file_path, $p['contact_number'], $p['vehicle_plate']);
             $stmt2->execute();
 
             $conn->commit();
-            $success_msg = "Resident profile successfully provisioned!";
 
-            // Connect and sync with the Python Face Recognition API Engine
+            // 4. Connect and sync with the Python Face Recognition API Engine
             $python_url = 'http://127.0.0.1:5000/api/process-face';
             $payload = json_encode([
                 'user_id' => $new_user_id,
-                'image_paths' => array_filter([$saved_file_path, $path2, $path3, $path4])
+                'image_paths' => array_values(array_filter([$saved_file_path, $path2, $path3, $path4]))
             ]);
 
             $ch = curl_init($python_url);
@@ -101,13 +145,22 @@ if (isset($_POST['add_resident_btn'])) {
             curl_exec($ch);
             curl_close($ch);
 
+            unset($_SESSION['pending_resident']);
+            $success_msg = "Verification successful! Resident profile has been permanently stored in the database.";
         } catch (Exception $e) {
             $conn->rollback();
             $error_msg = "Transaction failed: " . $e->getMessage();
         }
     } else {
-        $error_msg = "Please fill in all mandatory core profile fields and snap images.";
+        $error_msg = "Invalid verification code. Please check your email and try again.";
+        $show_verify_modal = true;
     }
+}
+
+// Cancel verification staging
+if (isset($_POST['cancel_verification_btn'])) {
+    unset($_SESSION['pending_resident']);
+    $error_msg = "Resident profile provision canceled.";
 }
 
 // ================= ACTION: PROCESS RESIDENT UPDATE TRANSACTION =================
@@ -160,7 +213,7 @@ if (isset($_POST['update_resident_btn'])) {
                     $python_url = 'http://127.0.0.1:5000/api/process-face';
                     $payload = json_encode([
                         'user_id' => $user_id,
-                        'image_paths' => array_filter([$new_file_path, $path2, $path3, $path4])
+                        'image_paths' => array_values(array_filter([$new_file_path, $path2, $path3, $path4]))
                     ]);
 
                     $ch = curl_init($python_url);
@@ -230,10 +283,15 @@ if (isset($_POST['delete_resident_btn'])) {
 
 $residents_query = $conn->query("SELECT * FROM residents ORDER BY id DESC");
 
-// Fetch Metrics for KPI Stat Bar
-$total_residents = $conn->query("SELECT COUNT(*) as cnt FROM residents")->fetch_assoc()['cnt'] ?? 0;
-$total_vehicles = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE registered_vehicle_plate IS NOT NULL AND registered_vehicle_plate != ''")->fetch_assoc()['cnt'] ?? 0;
-$total_faces = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_template_path IS NOT NULL AND face_template_path != ''")->fetch_assoc()['cnt'] ?? 0;
+// Fetch Metrics for KPI Stat Bar Safely
+$res_tot = $conn->query("SELECT COUNT(*) as cnt FROM residents");
+$total_residents = ($res_tot && $row = $res_tot->fetch_assoc()) ? $row['cnt'] : 0;
+
+$res_veh = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE registered_vehicle_plate IS NOT NULL AND registered_vehicle_plate != ''");
+$total_vehicles = ($res_veh && $row = $res_veh->fetch_assoc()) ? $row['cnt'] : 0;
+
+$res_face = $conn->query("SELECT COUNT(*) as cnt FROM residents WHERE face_template_path IS NOT NULL AND face_template_path != ''");
+$total_faces = ($res_face && $row = $res_face->fetch_assoc()) ? $row['cnt'] : 0;
 
 $current_page = basename($_SERVER['PHP_SELF']);
 ?>
@@ -279,7 +337,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
             width: 100%;
         }
 
-        /* SIDEBAR STYLING (MATCHED TO HOUSEHOLD) */
+        /* SIDEBAR STYLING */
         .sidebar {
             width: 250px !important;
             min-width: 250px !important;
@@ -789,8 +847,8 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     <tbody>
                         <?php if($residents_query && $residents_query->num_rows > 0): ?>
                             <?php while($row = $residents_query->fetch_assoc()): 
-                                $u_id = $row['user_id'];
-                                $u_check = $conn->query("SELECT email, username FROM users WHERE id = $u_id");
+                                $u_id = intval($row['user_id']);
+                                $u_check = ($u_id > 0) ? $conn->query("SELECT email, username FROM users WHERE id = $u_id") : false;
                                 $u_data = ($u_check && $u_check->num_rows > 0) ? $u_check->fetch_assoc() : ['email' => '', 'username' => ''];
                                 $file_path = !empty($row['face_template_path']) ? htmlspecialchars($row['face_template_path']) : '';
                                 $is_video = preg_match('/\.(webm|mp4)$/i', $file_path);
@@ -860,6 +918,32 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     </tbody>
                 </table>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: VERIFICATION CODE STEP BEFORE DB INSERT -->
+<div class="modal fade" id="verifyCodeModal" data-bs-backdrop="static" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+        <div class="modal-content border-0">
+            <div class="modal-header border-bottom py-3">
+                <h5 class="modal-title fw-bold text-dark fs-6"><i class="fa-solid fa-envelope-circle-check me-2 text-warning"></i>Email Code Verification</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="residents.php" method="POST">
+                <div class="modal-body p-4 text-center bg-white">
+                    <i class="fa-solid fa-shield-halved text-warning fs-1 mb-3"></i>
+                    <p class="text-dark fw-bold mb-1 fs-6">Enter Verification Code</p>
+                    <p class="text-muted small mb-3">A 6-digit code has been sent to <br><strong class="text-dark"><?php echo htmlspecialchars($_SESSION['pending_resident']['email'] ?? ''); ?></strong></p>
+
+                    <input type="text" name="verification_code" class="form-control text-center fw-bold fs-4 tracking-widest my-3" placeholder="000000" maxlength="6" required style="letter-spacing: 6px;">
+                    <p class="text-muted" style="font-size: 11px;">Enter the verification code to finalize adding the resident to the database.</p>
+                </div>
+                <div class="modal-footer bg-light border-0 justify-content-between">
+                    <button type="submit" name="cancel_verification_btn" class="btn btn-sm btn-secondary fw-semibold px-3">Cancel</button>
+                    <button type="submit" name="verify_resident_code_btn" class="btn btn-sm btn-gradient-orange fw-bold px-4">Verify & Save</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -996,7 +1080,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-sm btn-secondary fw-semibold px-3" data-bs-dismiss="modal" onclick="stopAdminCam()">Discard</button>
-                    <button type="submit" name="add_resident_btn" id="submitFormBtn" class="btn btn-sm btn-gradient-orange fw-bold px-4" disabled>Save Profile</button>
+                    <button type="submit" name="add_resident_btn" id="submitFormBtn" class="btn btn-sm btn-gradient-orange fw-bold px-4" disabled>Send Verification Code</button>
                 </div>
             </form>
         </div>
@@ -1144,6 +1228,11 @@ document.addEventListener("DOMContentLoaded", function() {
     const viewModal = new bootstrap.Modal(document.getElementById('viewResidentModal'));
     const editModal = new bootstrap.Modal(document.getElementById('editResidentModal'));
     const deleteModal = new bootstrap.Modal(document.getElementById('deleteResidentModal'));
+    const verifyModal = new bootstrap.Modal(document.getElementById('verifyCodeModal'));
+
+    <?php if ($show_verify_modal): ?>
+        verifyModal.show();
+    <?php endif; ?>
 
     // Live Instant Search Filter
     const searchInput = document.getElementById('residentSearchInput');
@@ -1367,6 +1456,8 @@ function stopAdminCam() {
     if (video) video.style.display = 'none';
     if (placeholder) placeholder.style.removeProperty('display');
     
+    currentPhotosCount = 0;
+    document.getElementById('submitFormBtn').disabled = true;
     document.getElementById('captureSuccessStatus').style.display = 'none';
     document.getElementById('captureSnapBtn').disabled = true;
     document.getElementById('addResidentForm').reset();
@@ -1383,6 +1474,7 @@ function stopEditAdminCam() {
     if (video) video.style.display = 'none';
     if (placeholder) placeholder.style.removeProperty('display');
 
+    editPhotosCount = 0;
     document.getElementById('editCaptureSuccessStatus').style.display = 'none';
 }
 
