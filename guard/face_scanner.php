@@ -82,13 +82,14 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
             background: #000; 
             position: absolute; 
         }
-        .btn-custom-orange { 
-            background-color: var(--subdivision-orange) !important; 
-            color: white !important; 
-            border: none; 
-            padding: 10px 24px; 
-            border-radius: 6px; 
-            font-weight: 600; 
+        .face-overlay-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
         }
     </style>
 </head>
@@ -133,9 +134,8 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
                             <span class="small text-muted">Click the button below to initialize the high-definition perimeter stream feed.</span>
                         </div>
                     </div>
-                    <div class="d-flex gap-2 justify-content-end">
+                    <div class="d-flex justify-content-end">
                         <button id="btnToggleFaceCam" class="btn btn-dark fw-bold px-4"><i class="fa-solid fa-camera me-2"></i> Start Face Camera</button>
-                        <button id="btnVerifyFace" class="btn btn-custom-orange fw-bold" disabled><i class="fa-solid fa-user-check me-2"></i> Verify Identity</button>
                     </div>
                 </div>
             </div>
@@ -196,10 +196,13 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'guard') {
 document.addEventListener("DOMContentLoaded", function() {
     let isEngineBackendOnline = false, localStreamMedia = null;
     let personnelLogTracker = JSON.parse(localStorage.getItem('personnelLogTracker')) || {};
+    let autoScanInterval = null;
+    let isProcessingScan = false;
+    let scanCooldown = false;
+    let clearOverlayTimeout = null;
 
     const videoContainer = document.getElementById('biometricVideoContainer');
     const btnToggleFaceCam = document.getElementById('btnToggleFaceCam');
-    const btnVerifyFace = document.getElementById('btnVerifyFace');
 
     function checkEngine() {
         fetch('http://127.0.0.1:5000/status', { method: 'GET', mode: 'cors' })
@@ -208,11 +211,9 @@ document.addEventListener("DOMContentLoaded", function() {
             isEngineBackendOnline = true;
             document.getElementById('engineStatusIndicator').className = "badge bg-success p-2";
             document.getElementById('engineStatusIndicator').innerHTML = "<i class='fa-solid fa-shield'></i> Engine Link Active";
-            if (localStreamMedia) btnVerifyFace.disabled = false;
         })
         .catch(() => {
             isEngineBackendOnline = false;
-            btnVerifyFace.disabled = true;
             document.getElementById('engineStatusIndicator').className = "badge bg-danger p-2";
             document.getElementById('engineStatusIndicator').innerHTML = "<i class='fa-solid fa-xmark'></i> Engine Offline";
         });
@@ -230,12 +231,16 @@ document.addEventListener("DOMContentLoaded", function() {
             navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } } })
             .then(stream => {
                 localStreamMedia = stream;
-                videoContainer.innerHTML = '<video id="nativeWebcamView" class="native-video-tag" autoplay playsinline></video>';
+                videoContainer.innerHTML = `
+                    <video id="nativeWebcamView" class="native-video-tag" autoplay playsinline></video>
+                    <canvas id="faceOverlayCanvas" class="face-overlay-canvas"></canvas>
+                `;
                 document.getElementById('nativeWebcamView').srcObject = stream;
                 btnToggleFaceCam.className = "btn btn-danger fw-bold px-4";
                 btnToggleFaceCam.innerHTML = '<i class="fa-solid fa-stop me-2"></i> Stop Camera';
-                btnVerifyFace.disabled = false;
-                showFeedback("Webcam capturing framework connected successfully.", "warning");
+                showFeedback("Webcam capturing framework connected. Automatic face scanning active...", "warning");
+                
+                startAutoScanner();
             })
             .catch(err => {
                 showFeedback("Hardware Error: Browser failed to secure capture permission handle.", "danger");
@@ -245,11 +250,23 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     });
 
+    function startAutoScanner() {
+        if (autoScanInterval) clearInterval(autoScanInterval);
+        autoScanInterval = setInterval(() => {
+            executeFaceRecognition();
+        }, 1200);
+    }
+
     function stopCameraHardware() {
+        if (autoScanInterval) {
+            clearInterval(autoScanInterval);
+            autoScanInterval = null;
+        }
         if (localStreamMedia) {
             localStreamMedia.getTracks().forEach(t => t.stop()); 
             localStreamMedia = null;
         }
+        clearFaceOverlay();
         videoContainer.innerHTML = `
             <div id="faceScanOverlay" class="text-center text-white-50 p-4">
                 <i class="fa-solid fa-video-slash d-block mb-3 text-muted" style="font-size: 3rem;"></i>
@@ -258,19 +275,20 @@ document.addEventListener("DOMContentLoaded", function() {
             </div>`;
         btnToggleFaceCam.className = "btn btn-dark fw-bold px-4";
         btnToggleFaceCam.innerHTML = '<i class="fa-solid fa-camera me-2"></i> Start Face Camera';
-        btnVerifyFace.disabled = true;
     }
 
-    btnVerifyFace.addEventListener('click', function() {
+    function executeFaceRecognition() {
+        if (isProcessingScan || scanCooldown) return;
+
         const v = document.getElementById('nativeWebcamView');
-        if (!v || !localStreamMedia) return;
+        if (!v || !localStreamMedia || v.readyState !== 4) return;
+
+        isProcessingScan = true;
 
         const canvas = document.createElement('canvas');
         canvas.width = v.videoWidth; 
         canvas.height = v.videoHeight;
         canvas.getContext('2d').drawImage(v, 0, 0);
-        
-        showFeedback("Analyzing vector alignments and cross-referencing system database...", "warning");
 
         fetch('http://127.0.0.1:5000/api/scan', {
             method: 'POST', 
@@ -281,6 +299,12 @@ document.addEventListener("DOMContentLoaded", function() {
         .then(res => res.json())
         .then(data => {
             if(data.status === "verified" && data.data) {
+                scanCooldown = true;
+                setTimeout(() => { scanCooldown = false; }, 5000);
+
+                let faceLoc = data.face_location || data.location || (data.data ? data.data.face_location : null);
+                drawFaceBoundingBox(data.data.full_name, faceLoc, v);
+
                 document.getElementById('lblVerifiedName').textContent = data.data.full_name;
                 
                 let rawRole = data.data.role_type ? data.data.role_type.toString().trim() : 'Service Contractor';
@@ -361,7 +385,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 .then(logRes => logRes.json())
                 .then(logData => {
                     if(logData.status === "success") {
-                        showFeedback(`Access Clear: Entry saved into database.`, "success");
+                        showFeedback(`Access Clear: Automatically logged ${data.data.full_name}.`, "success");
                     } else {
                         showFeedback(`Identity Verified, but logging failed: ${logData.message}`, "warning");
                     }
@@ -371,16 +395,89 @@ document.addEventListener("DOMContentLoaded", function() {
                 });
 
                 new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav').play().catch(()=>{});
-            } else {
-                showFeedback(data.message || "Access Denied: Biometric parameters signature does not match.", "danger");
-                document.getElementById('clearanceDataBox').classList.add('d-none');
-                document.getElementById('emptyDataBox').classList.remove('d-none');
             }
         })
         .catch(err => {
-            showFeedback("Engine Failure: Dropped connectivity data stream framework with Flask backend.", "danger");
+            // Silence silent background polling drops
+        })
+        .finally(() => {
+            isProcessingScan = false;
         });
-    });
+    }
+
+    function drawFaceBoundingBox(personName, location, videoEl) {
+        const overlay = document.getElementById('faceOverlayCanvas');
+        if (!overlay || !videoEl) return;
+
+        overlay.width = videoEl.clientWidth;
+        overlay.height = videoEl.clientHeight;
+
+        const ctx = overlay.getContext('2d');
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+        let x, y, width, height;
+
+        if (location && Array.isArray(location) && location.length === 4) {
+            let [top, right, bottom, left] = location;
+            let scaleX = overlay.width / videoEl.videoWidth;
+            let scaleY = overlay.height / videoEl.videoHeight;
+
+            x = left * scaleX;
+            y = top * scaleY;
+            width = (right - left) * scaleX;
+            height = (bottom - top) * scaleY;
+        } else if (location && typeof location === 'object' && location.x !== undefined) {
+            let scaleX = overlay.width / videoEl.videoWidth;
+            let scaleY = overlay.height / videoEl.videoHeight;
+            x = location.x * scaleX;
+            y = location.y * scaleY;
+            width = (location.width || location.w) * scaleX;
+            height = (location.height || location.h) * scaleY;
+        } else {
+            width = overlay.width * 0.38;
+            height = overlay.height * 0.48;
+            x = (overlay.width - width) / 2 + (overlay.width * 0.08);
+            y = (overlay.height - height) / 3;
+        }
+
+        // Bounding Box
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#22c55e';
+        ctx.shadowColor = '#22c55e';
+        ctx.shadowBlur = 10;
+        ctx.strokeRect(x, y, width, height);
+
+        // Name Tag Header Banner
+        const fontSize = Math.max(14, Math.floor(width * 0.075));
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        const textPadding = 12;
+        const textWidth = ctx.measureText(personName).width;
+        const labelWidth = Math.max(textWidth + (textPadding * 2), width);
+        const labelHeight = fontSize + 16;
+        const labelX = x;
+        const labelY = Math.max(0, y - labelHeight);
+
+        ctx.fillStyle = '#22c55e';
+        ctx.shadowBlur = 0;
+        ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
+
+        // Target Name Text
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(personName, labelX + textPadding, labelY + labelHeight - 8);
+
+        if (clearOverlayTimeout) clearTimeout(clearOverlayTimeout);
+        clearOverlayTimeout = setTimeout(() => {
+            clearFaceOverlay();
+        }, 4500);
+    }
+
+    function clearFaceOverlay() {
+        const overlay = document.getElementById('faceOverlayCanvas');
+        if (overlay) {
+            const ctx = overlay.getContext('2d');
+            ctx.clearRect(0, 0, overlay.width, overlay.height);
+        }
+    }
 
     function showFeedback(m, t) {
         const b = document.getElementById('systemAuthFeedback');
