@@ -101,6 +101,27 @@ if (isset($_POST['add_resident_btn'])) {
     }
 }
 
+// ================= ACTION: RESEND VERIFICATION CODE =================
+if (isset($_POST['resend_verification_code_btn'])) {
+    if (isset($_SESSION['pending_resident'])) {
+        $p = $_SESSION['pending_resident'];
+        $new_verification_code = sprintf("%06d", mt_rand(1, 999999));
+        $_SESSION['pending_resident']['code'] = $new_verification_code;
+
+        if (file_exists('../guard/send_gmail.php')) {
+            require_once '../guard/send_gmail.php';
+            if (function_exists('sendVerificationCode')) {
+                sendVerificationCode($p['email'], $p['full_name'], $new_verification_code);
+            }
+        }
+
+        $success_msg = "A new verification code has been sent to " . htmlspecialchars($p['email']) . ".";
+        $show_verify_modal = true;
+    } else {
+        $error_msg = "No pending registration found. Please try adding the resident again.";
+    }
+}
+
 // ================= ACTION: VERIFY CODE & COMMIT TO DATABASE =================
 if (isset($_POST['verify_resident_code_btn'])) {
     $entered_code = trim($_POST['verification_code'] ?? '');
@@ -937,10 +958,15 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     <p class="text-muted small mb-3">A 6-digit code has been sent to <br><strong class="text-dark"><?php echo htmlspecialchars($_SESSION['pending_resident']['email'] ?? ''); ?></strong></p>
 
                     <input type="text" name="verification_code" class="form-control text-center fw-bold fs-4 tracking-widest my-3" placeholder="000000" maxlength="6" required style="letter-spacing: 6px;">
-                    <p class="text-muted" style="font-size: 11px;">Enter the verification code to finalize adding the resident to the database.</p>
+                    <p class="text-muted mb-2" style="font-size: 11px;">Enter the verification code to finalize adding the resident to the database.</p>
+                    
+                    <div class="mt-3 pt-2 border-top">
+                        <span class="text-muted small">Didn't receive code? </span>
+                        <button type="submit" name="resend_verification_code_btn" class="btn btn-link p-0 text-decoration-none fw-bold small" style="font-size: 12px; color: var(--subdivision-orange);" formnovalidate>Resend Code</button>
+                    </div>
                 </div>
                 <div class="modal-footer bg-light border-0 justify-content-between">
-                    <button type="submit" name="cancel_verification_btn" class="btn btn-sm btn-secondary fw-semibold px-3">Cancel</button>
+                    <button type="submit" name="cancel_verification_btn" class="btn btn-sm btn-secondary fw-semibold px-3" formnovalidate>Cancel</button>
                     <button type="submit" name="verify_resident_code_btn" class="btn btn-sm btn-gradient-orange fw-bold px-4">Verify & Save</button>
                 </div>
             </form>

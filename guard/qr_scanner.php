@@ -173,18 +173,23 @@ document.addEventListener("DOMContentLoaded", function() {
                 document.getElementById('emptyDataBox').classList.add('d-none');
                 new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav').play().catch(()=>{});
                 
-                setTimeout(() => { isProcessing = false; }, 5000);
+                // Reset flag and lastScannedToken after 3 seconds to allow scanning again
+                setTimeout(() => { 
+                    isProcessing = false; 
+                    lastScannedToken = ""; 
+                }, 3000);
             } else {
                 showFeedback(data.message, "danger");
                 document.getElementById('clearanceDataBox').classList.add('d-none');
                 document.getElementById('emptyDataBox').classList.remove('d-none');
                 lastScannedToken = ""; isProcessing = false;
             }
-    }).catch(err => { 
-    isProcessing = false; 
-    lastScannedToken = ""; 
-    showFeedback("Server execution error or invalid JSON response.", "danger");
-    });    }
+        }).catch(err => { 
+            isProcessing = false; 
+            lastScannedToken = ""; 
+            showFeedback("Server execution error or invalid JSON response.", "danger");
+        });
+    }
 
     function showFeedback(m, t) {
         const b = document.getElementById('systemAuthFeedback');
