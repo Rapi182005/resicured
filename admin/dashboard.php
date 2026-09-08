@@ -15,7 +15,19 @@ if (file_exists('../config/database.php')) {
     $res_res = $conn->query("SELECT COUNT(*) as total FROM residents");
     $total_residents = ($res_res && $row = $res_res->fetch_assoc()) ? ($row['total'] ?? 0) : 0;
 
-    $res_req = $conn->query("SELECT COUNT(*) as total FROM requests WHERE status='pending'");
+    // DYNAMICALLY FILTER PENDING ACCESS FORMS (EXCLUDING CONCERNS)
+    $pending_req_sql = "SELECT COUNT(*) as total FROM requests WHERE LOWER(status)='pending'";
+    $col_check = $conn->query("SHOW COLUMNS FROM requests");
+    if ($col_check) {
+        while ($col = $col_check->fetch_assoc()) {
+            $field = strtolower($col['Field']);
+            if (in_array($field, ['category', 'type', 'request_type', 'form_type'])) {
+                $pending_req_sql = "SELECT COUNT(*) as total FROM requests WHERE LOWER(status)='pending' AND LOWER($field) NOT LIKE '%concern%'";
+                break;
+            }
+        }
+    }
+    $res_req = $conn->query($pending_req_sql);
     $pending_requests = ($res_req && $row = $res_req->fetch_assoc()) ? ($row['total'] ?? 0) : 0;
 
     $res_bill = $conn->query("SELECT COUNT(*) as total FROM billings WHERE status='unpaid'");

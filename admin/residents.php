@@ -10,11 +10,23 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
 // 2. SAFE DATABASE ACCESS INTEGRATION
 require_once '../config/database.php';
 
+// Auto-migration check: Ensure id_type and id_image_path columns exist in residents table
+if ($conn) {
+    $chk1 = $conn->query("SHOW COLUMNS FROM residents LIKE 'id_type'");
+    if ($chk1 && $chk1->num_rows == 0) {
+        $conn->query("ALTER TABLE residents ADD id_type VARCHAR(100) NULL");
+    }
+    $chk2 = $conn->query("SHOW COLUMNS FROM residents LIKE 'id_image_path'");
+    if ($chk2 && $chk2->num_rows == 0) {
+        $conn->query("ALTER TABLE residents ADD id_image_path VARCHAR(255) NULL");
+    }
+}
+
 $success_msg = "";
 $error_msg = "";
 $show_verify_modal = false;
 
-// Helper function to process and save Base64 media data
+// Helper function to process and save Base64 media data (Biometric Face Snapshot)
 function saveBase64Media($base64_data, $user_id, $index = 1) {
     if (empty($base64_data)) return NULL;
 
@@ -48,6 +60,38 @@ function saveBase64Media($base64_data, $user_id, $index = 1) {
     return NULL;
 }
 
+// Helper function to process and save Base64 ID Image
+function saveBase64IdImage($base64_data, $user_id) {
+    if (empty($base64_data)) return NULL;
+
+    $parts = explode(";base64,", $base64_data);
+    if (count($parts) < 2) return NULL;
+
+    $media_base64 = base64_decode($parts[1]);
+    $mime_part = explode(":", $parts[0]);
+    $mime_type = isset($mime_part[1]) ? explode(";", $mime_part[1])[0] : '';
+
+    $ext = 'jpg';
+    if (strpos($mime_type, 'png') !== false) {
+        $ext = 'png';
+    } elseif (strpos($mime_type, 'pdf') !== false) {
+        $ext = 'pdf';
+    }
+
+    $file_name = 'id_res_' . $user_id . '_' . time() . '.' . $ext;
+    $target_directory = '../uploads/id_cards/';
+
+    if (!is_dir($target_directory)) {
+        mkdir($target_directory, 0755, true);
+    }
+
+    $file_destination = $target_directory . $file_name;
+    if (file_put_contents($file_destination, $media_base64)) {
+        return 'uploads/id_cards/' . $file_name;
+    }
+    return NULL;
+}
+
 // ================= ACTION: STAGE NEW RESIDENT & SEND VERIFICATION CODE =================
 if (isset($_POST['add_resident_btn'])) {
     $full_name = trim($_POST['full_name']);
@@ -59,6 +103,19 @@ if (isset($_POST['add_resident_btn'])) {
     $username = trim($_POST['username']);
     $password = password_hash(trim($_POST['password']), PASSWORD_BCRYPT);
     
+    // Process ID Type selection
+    $id_type_raw = trim($_POST['id_type'] ?? '');
+    $custom_id_type = trim($_POST['custom_id_type'] ?? '');
+    $id_type = ($id_type_raw === 'Other') ? $custom_id_type : $id_type_raw;
+
+    // Process ID Card File Upload into Base64 format for session staging
+    $id_image_base64 = '';
+    if (isset($_FILES['id_card_image']) && $_FILES['id_card_image']['error'] === UPLOAD_ERR_OK) {
+        $file_tmp = $_FILES['id_card_image']['tmp_name'];
+        $file_mime = mime_content_type($file_tmp);
+        $id_image_base64 = 'data:' . $file_mime . ';base64,' . base64_encode(file_get_contents($file_tmp));
+    }
+
     // Receive 4 individual base64 snapshot strings
     $img1 = $_POST['resident_img_1'] ?? '';
     $img2 = $_POST['resident_img_2'] ?? '';
@@ -87,6 +144,8 @@ if (isset($_POST['add_resident_btn'])) {
             'vehicle_plate' => $vehicle_plate,
             'username' => $username,
             'password' => $password,
+            'id_type' => $id_type,
+            'id_image_base64' => $id_image_base64,
             'img1' => $img1,
             'img2' => $img2,
             'img3' => $img3,
@@ -143,9 +202,12 @@ if (isset($_POST['verify_resident_code_btn'])) {
             $path3 = saveBase64Media($p['img3'], $new_user_id, 3);
             $path4 = saveBase64Media($p['img4'], $new_user_id, 4);
 
-            // 3. Insert into residents table
-            $stmt2 = $conn->prepare("INSERT INTO residents (user_id, full_name, resident_type, house_number, face_template_path, contact_number, registered_vehicle_plate) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt2->bind_param("issssss", $new_user_id, $p['full_name'], $p['resident_type'], $p['house_number'], $saved_file_path, $p['contact_number'], $p['vehicle_plate']);
+            // Save ID Document image
+            $saved_id_path = saveBase64IdImage($p['id_image_base64'] ?? '', $new_user_id);
+
+            // 3. Insert into residents table with id_type and id_image_path
+            $stmt2 = $conn->prepare("INSERT INTO residents (user_id, full_name, resident_type, house_number, face_template_path, contact_number, registered_vehicle_plate, id_type, id_image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt2->bind_param("issssssss", $new_user_id, $p['full_name'], $p['resident_type'], $p['house_number'], $saved_file_path, $p['contact_number'], $p['vehicle_plate'], $p['id_type'], $saved_id_path);
             $stmt2->execute();
 
             $conn->commit();
@@ -195,6 +257,20 @@ if (isset($_POST['update_resident_btn'])) {
     $house_number = trim($_POST['edit_house_number']);
     $vehicle_plate = trim($_POST['edit_vehicle_plate']);
     $username = trim($_POST['edit_username']);
+
+    // ID Type Processing
+    $id_type_raw = trim($_POST['edit_id_type'] ?? '');
+    $custom_id_type = trim($_POST['edit_custom_id_type'] ?? '');
+    $id_type = ($id_type_raw === 'Other') ? $custom_id_type : $id_type_raw;
+
+    // Check if new ID document photo was uploaded
+    $new_id_path = NULL;
+    if (isset($_FILES['edit_id_card_image']) && $_FILES['edit_id_card_image']['error'] === UPLOAD_ERR_OK) {
+        $file_tmp = $_FILES['edit_id_card_image']['tmp_name'];
+        $file_mime = mime_content_type($file_tmp);
+        $b64 = 'data:' . $file_mime . ';base64,' . base64_encode(file_get_contents($file_tmp));
+        $new_id_path = saveBase64IdImage($b64, $user_id);
+    }
 
     // Receive 4 individual updated snapshot strings
     $img1 = $_POST['edit_resident_img_1'] ?? '';
@@ -248,6 +324,26 @@ if (isset($_POST['update_resident_btn'])) {
                 }
             }
 
+            // Update ID details if uploaded
+            if ($new_id_path) {
+                // Delete old ID file if exists
+                $old_id_check = $conn->prepare("SELECT id_image_path FROM residents WHERE id = ?");
+                $old_id_check->bind_param("i", $resident_id);
+                $old_id_check->execute();
+                $old_id_res = $old_id_check->get_result()->fetch_assoc();
+                if (!empty($old_id_res['id_image_path']) && file_exists('../' . $old_id_res['id_image_path'])) {
+                    unlink('../' . $old_id_res['id_image_path']);
+                }
+
+                $stmt_id = $conn->prepare("UPDATE residents SET id_type = ?, id_image_path = ? WHERE id = ?");
+                $stmt_id->bind_param("ssi", $id_type, $new_id_path, $resident_id);
+                $stmt_id->execute();
+            } else {
+                $stmt_id = $conn->prepare("UPDATE residents SET id_type = ? WHERE id = ?");
+                $stmt_id->bind_param("si", $id_type, $resident_id);
+                $stmt_id->execute();
+            }
+
             $stmt2 = $conn->prepare("UPDATE residents SET full_name = ?, resident_type = ?, house_number = ?, contact_number = ?, registered_vehicle_plate = ? WHERE id = ?");
             $stmt2->bind_param("sssssi", $full_name, $resident_type, $house_number, $contact_number, $vehicle_plate, $resident_id);
             $stmt2->execute();
@@ -277,13 +373,16 @@ if (isset($_POST['delete_resident_btn'])) {
 
     $conn->begin_transaction();
     try {
-        $img_check = $conn->prepare("SELECT face_template_path FROM residents WHERE id = ?");
+        $img_check = $conn->prepare("SELECT face_template_path, id_image_path FROM residents WHERE id = ?");
         $img_check->bind_param("i", $resident_id);
         $img_check->execute();
         $res_img = $img_check->get_result()->fetch_assoc();
         
         if (!empty($res_img['face_template_path']) && file_exists('../' . $res_img['face_template_path'])) {
             unlink('../' . $res_img['face_template_path']);
+        }
+        if (!empty($res_img['id_image_path']) && file_exists('../' . $res_img['id_image_path'])) {
+            unlink('../' . $res_img['id_image_path']);
         }
 
         $stmt1 = $conn->prepare("DELETE FROM residents WHERE id = ?");
@@ -712,6 +811,39 @@ $current_page = basename($_SERVER['PHP_SELF']);
             z-index: 10;
         }
 
+        /* FACE RECOGNITION OVAL DRAW OVERLAY */
+        .face-overlay-guide {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 115px;
+            height: 155px;
+            border: 2px dashed #ffaa00;
+            border-radius: 50%;
+            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.45);
+            pointer-events: none;
+            z-index: 12;
+            display: none;
+            transition: all 0.2s ease;
+        }
+        .face-overlay-guide::after {
+            content: "Fit Face Here";
+            position: absolute;
+            bottom: -22px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ffaa00;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+            background: rgba(15, 23, 42, 0.8);
+            padding: 1px 6px;
+            border-radius: 4px;
+        }
+
         .cam-placeholder-box {
             position: absolute; 
             width: 100%; 
@@ -872,6 +1004,8 @@ $current_page = basename($_SERVER['PHP_SELF']);
                                 $u_check = ($u_id > 0) ? $conn->query("SELECT email, username FROM users WHERE id = $u_id") : false;
                                 $u_data = ($u_check && $u_check->num_rows > 0) ? $u_check->fetch_assoc() : ['email' => '', 'username' => ''];
                                 $file_path = !empty($row['face_template_path']) ? htmlspecialchars($row['face_template_path']) : '';
+                                $id_img_path = !empty($row['id_image_path']) ? htmlspecialchars($row['id_image_path']) : '';
+                                $id_type_val = !empty($row['id_type']) ? htmlspecialchars($row['id_type']) : 'N/A';
                                 $is_video = preg_match('/\.(webm|mp4)$/i', $file_path);
                                 $res_type = !empty($row['resident_type']) ? htmlspecialchars($row['resident_type']) : 'Homeowner';
                             ?>
@@ -903,6 +1037,8 @@ $current_page = basename($_SERVER['PHP_SELF']);
                                                 data-contact="<?php echo htmlspecialchars($row['contact_number']); ?>"
                                                 data-username="<?php echo htmlspecialchars($u_data['username']); ?>"
                                                 data-email="<?php echo htmlspecialchars($u_data['email']); ?>"
+                                                data-idtype="<?php echo $id_type_val; ?>"
+                                                data-idimage="<?php echo !empty($id_img_path) ? '../' . $id_img_path : ''; ?>"
                                                 data-face="../<?php echo !empty($file_path) ? $file_path : 'assets/images/default-avatar.png'; ?>">
                                             <i class="fa-regular fa-eye me-1"></i>View
                                         </button>
@@ -916,6 +1052,8 @@ $current_page = basename($_SERVER['PHP_SELF']);
                                                 data-contact="<?php echo htmlspecialchars($row['contact_number']); ?>"
                                                 data-username="<?php echo htmlspecialchars($u_data['username']); ?>"
                                                 data-email="<?php echo htmlspecialchars($u_data['email']); ?>"
+                                                data-idtype="<?php echo $id_type_val; ?>"
+                                                data-idimage="<?php echo !empty($id_img_path) ? '../' . $id_img_path : ''; ?>"
                                                 data-face="../<?php echo !empty($file_path) ? $file_path : 'assets/images/default-avatar.png'; ?>">
                                             <i class="fa-regular fa-pen-to-square me-1"></i>Edit
                                         </button>
@@ -1012,6 +1150,14 @@ $current_page = basename($_SERVER['PHP_SELF']);
                         <span class="text-muted small"><i class="fa-solid fa-car me-2 opacity-75"></i>Vehicle Plate</span>
                         <span id="viewVehiclePlate"></span>
                     </div>
+                    <div class="list-group-item px-0 d-flex justify-content-between align-items-center border-0 py-2">
+                        <span class="text-muted small"><i class="fa-solid fa-id-card me-2 opacity-75"></i>ID Type</span>
+                        <span id="viewIdType" class="fw-bold text-dark small"></span>
+                    </div>
+                    <div class="list-group-item px-0 d-flex flex-column border-0 py-2" id="viewIdImageWrapper" style="display:none;">
+                        <span class="text-muted small mb-2"><i class="fa-solid fa-image me-2 opacity-75"></i>Uploaded ID Document</span>
+                        <img id="viewIdImageDisplay" src="" class="img-fluid rounded border shadow-sm" style="max-height: 180px; object-fit: contain; width: 100%; background: #f8fafc;">
+                    </div>
                 </div>
             </div>
             <div class="modal-footer bg-light border-0">
@@ -1029,7 +1175,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 <h5 class="modal-title fw-bold text-dark fs-6"><i class="fa fa-user-plus me-2 text-warning"></i>Provision Resident Profile</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="stopAdminCam()"></button>
             </div>
-            <form action="residents.php" method="POST" id="addResidentForm">
+            <form action="residents.php" method="POST" id="addResidentForm" enctype="multipart/form-data">
                 <div class="modal-body p-4 bg-white">
                     <div class="row g-4">
                         <div class="col-md-6 d-flex flex-column gap-3">
@@ -1058,6 +1204,42 @@ $current_page = basename($_SERVER['PHP_SELF']);
                                 <label class="form-label small fw-bold text-dark">Contact Number</label>
                                 <input type="text" name="contact_number" class="form-control" placeholder="e.g., 0917XXXXXXX">
                             </div>
+
+                            <!-- Philippine ID Type Selection -->
+                            <div>
+                                <label class="form-label small fw-bold text-dark">ID Type (Philippines)</label>
+                                <select name="id_type" id="addIdTypeSelect" class="form-select" onchange="toggleIdFields('add')">
+                                    <option value="" selected>-- Select ID Type --</option>
+                                    <option value="Philippine National ID (PhilID)">Philippine National ID (PhilID / ePhilID)</option>
+                                    <option value="Driver's License">Driver's License</option>
+                                    <option value="Passport">Passport</option>
+                                    <option value="SSS / UMID ID">SSS ID / UMID</option>
+                                    <option value="GSIS ID">GSIS ID</option>
+                                    <option value="PRC ID">PRC License ID</option>
+                                    <option value="Postal ID">Postal ID</option>
+                                    <option value="Voter's ID">Voter's ID / Certification</option>
+                                    <option value="TIN ID">TIN ID</option>
+                                    <option value="Senior Citizen ID">Senior Citizen ID</option>
+                                    <option value="OFW ID">OFW ID</option>
+                                    <option value="Barangay ID / Clearance">Barangay ID / Clearance</option>
+                                    <option value="PhilHealth ID">PhilHealth ID</option>
+                                    <option value="Other">Other (Specify)</option>
+                                </select>
+                            </div>
+
+                            <!-- Custom Specified ID Type (If 'Other' Selected) -->
+                            <div id="addCustomIdWrapper" style="display: none;">
+                                <label class="form-label small fw-bold text-dark">Specify ID Type <span class="text-danger">*</span></label>
+                                <input type="text" name="custom_id_type" id="addCustomIdInput" class="form-control" placeholder="Specify ID type name...">
+                            </div>
+
+                            <!-- Upload Image for ID -->
+                            <div id="addIdUploadWrapper" style="display: none;">
+                                <label class="form-label small fw-bold text-dark">Upload ID Document / Photo</label>
+                                <input type="file" name="id_card_image" accept="image/*" class="form-control">
+                                <span class="text-muted" style="font-size: 11px;">Upload a clear snapshot or scan of the selected ID.</span>
+                            </div>
+
                             <div class="row g-2">
                                 <div class="col-6">
                                     <label class="form-label small fw-bold text-dark">Username <span class="text-danger">*</span></label>
@@ -1084,6 +1266,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
 
                             <div class="admin-cam-box mb-3 mx-auto">
                                 <video id="adminWebcam" autoplay playsinline muted></video>
+                                <div id="faceOverlayAdd" class="face-overlay-guide"></div>
                                 <div id="camPlaceholderText" class="cam-placeholder-box text-muted small">
                                     <i class="fa fa-video fs-3 mb-2 opacity-50" style="color: var(--subdivision-orange);"></i>
                                     Webcam Stream Inactive
@@ -1121,7 +1304,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 <h5 class="modal-title fw-bold text-dark fs-6"><i class="fa fa-user-pen me-2 text-warning"></i>Modify Resident Profile</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="stopEditAdminCam()"></button>
             </div>
-            <form action="residents.php" method="POST" id="editResidentForm">
+            <form action="residents.php" method="POST" id="editResidentForm" enctype="multipart/form-data">
                 <div class="modal-body p-4 bg-white">
                     <div class="row g-4">
                         <div class="col-md-6 d-flex flex-column gap-3">
@@ -1153,6 +1336,45 @@ $current_page = basename($_SERVER['PHP_SELF']);
                                 <label class="form-label small fw-bold text-dark">Contact Number</label>
                                 <input type="text" name="edit_contact_number" id="editContactNumber" class="form-control">
                             </div>
+
+                            <!-- Philippine ID Type Selection (Edit) -->
+                            <div>
+                                <label class="form-label small fw-bold text-dark">ID Type (Philippines)</label>
+                                <select name="edit_id_type" id="editIdTypeSelect" class="form-select" onchange="toggleIdFields('edit')">
+                                    <option value="">-- Select ID Type --</option>
+                                    <option value="Philippine National ID (PhilID)">Philippine National ID (PhilID / ePhilID)</option>
+                                    <option value="Driver's License">Driver's License</option>
+                                    <option value="Passport">Passport</option>
+                                    <option value="SSS / UMID ID">SSS ID / UMID</option>
+                                    <option value="GSIS ID">GSIS ID</option>
+                                    <option value="PRC ID">PRC License ID</option>
+                                    <option value="Postal ID">Postal ID</option>
+                                    <option value="Voter's ID">Voter's ID / Certification</option>
+                                    <option value="TIN ID">TIN ID</option>
+                                    <option value="Senior Citizen ID">Senior Citizen ID</option>
+                                    <option value="OFW ID">OFW ID</option>
+                                    <option value="Barangay ID / Clearance">Barangay ID / Clearance</option>
+                                    <option value="PhilHealth ID">PhilHealth ID</option>
+                                    <option value="Other">Other (Specify)</option>
+                                </select>
+                            </div>
+
+                            <!-- Custom Specified ID Type (Edit) -->
+                            <div id="editCustomIdWrapper" style="display: none;">
+                                <label class="form-label small fw-bold text-dark">Specify ID Type <span class="text-danger">*</span></label>
+                                <input type="text" name="edit_custom_id_type" id="editCustomIdInput" class="form-control" placeholder="Specify ID type name...">
+                            </div>
+
+                            <!-- Upload Image for ID (Edit) -->
+                            <div id="editIdUploadWrapper" style="display: none;">
+                                <label class="form-label small fw-bold text-dark">Upload New ID Document / Photo</label>
+                                <input type="file" name="edit_id_card_image" accept="image/*" class="form-control">
+                                <div id="editExistingIdPreview" class="mt-2 text-start" style="display:none;">
+                                    <span class="text-muted small d-block mb-1">Current ID Document:</span>
+                                    <img id="editExistingIdImg" src="" class="img-fluid rounded border" style="max-height: 90px;">
+                                </div>
+                            </div>
+
                             <div class="row g-2">
                                 <div class="col-6">
                                     <label class="form-label small fw-bold text-dark">Username <span class="text-danger">*</span></label>
@@ -1191,6 +1413,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                             <div id="editFaceCamState" style="display:none;">
                                 <div class="admin-cam-box mb-3 mx-auto">
                                     <video id="editAdminWebcam" autoplay playsinline muted></video>
+                                    <div id="faceOverlayEdit" class="face-overlay-guide"></div>
                                     <div id="editCamPlaceholderText" class="cam-placeholder-box text-muted small">
                                         <i class="fa fa-camera fs-3 mb-2 opacity-50" style="color: var(--subdivision-orange);"></i>
                                         Camera System Idle
@@ -1250,6 +1473,31 @@ $current_page = basename($_SERVER['PHP_SELF']);
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+// Dynamic Toggle Function for Philippine ID Selection Options & Custom Input
+function toggleIdFields(mode) {
+    const select = document.getElementById(mode === 'add' ? 'addIdTypeSelect' : 'editIdTypeSelect');
+    const customWrapper = document.getElementById(mode === 'add' ? 'addCustomIdWrapper' : 'editCustomIdWrapper');
+    const customInput = document.getElementById(mode === 'add' ? 'addCustomIdInput' : 'editCustomIdInput');
+    const uploadWrapper = document.getElementById(mode === 'add' ? 'addIdUploadWrapper' : 'editIdUploadWrapper');
+
+    if (!select) return;
+
+    if (select.value === 'Other') {
+        customWrapper.style.display = 'block';
+        customInput.setAttribute('required', 'required');
+    } else {
+        customWrapper.style.display = 'none';
+        customInput.removeAttribute('required');
+        customInput.value = '';
+    }
+
+    if (select.value && select.value !== '') {
+        uploadWrapper.style.display = 'block';
+    } else {
+        uploadWrapper.style.display = 'none';
+    }
+}
+
 document.addEventListener("DOMContentLoaded", function() {
     const viewModal = new bootstrap.Modal(document.getElementById('viewResidentModal'));
     const editModal = new bootstrap.Modal(document.getElementById('editResidentModal'));
@@ -1296,6 +1544,20 @@ document.addEventListener("DOMContentLoaded", function() {
             document.getElementById('viewEmail').textContent = this.dataset.email || 'N/A';
             document.getElementById('viewContactNumber').textContent = this.dataset.contact || 'N/A';
             
+            // View ID Details
+            const idTypeVal = this.dataset.idtype || 'N/A';
+            document.getElementById('viewIdType').textContent = idTypeVal;
+            const idImageVal = this.dataset.idimage;
+            const idImgWrapper = document.getElementById('viewIdImageWrapper');
+            const idImgDisplay = document.getElementById('viewIdImageDisplay');
+
+            if (idImageVal && idImageVal !== '') {
+                idImgDisplay.src = idImageVal;
+                idImgWrapper.style.display = 'block';
+            } else {
+                idImgWrapper.style.display = 'none';
+            }
+
             const plateContainer = document.getElementById('viewVehiclePlate');
             if (this.dataset.vehicle && this.dataset.vehicle.trim() !== '') {
                 plateContainer.innerHTML = `<span class="plate-badge"><i class="fa fa-car"></i>${this.dataset.vehicle}</span>`;
@@ -1334,6 +1596,47 @@ document.addEventListener("DOMContentLoaded", function() {
             document.getElementById('editUsername').value = this.dataset.username;
             document.getElementById('editEmail').value = this.dataset.email;
             
+            // Map Edit ID details
+            const editSelect = document.getElementById('editIdTypeSelect');
+            const idTypeVal = this.dataset.idtype || '';
+            const customWrapper = document.getElementById('editCustomIdWrapper');
+            const customInput = document.getElementById('editCustomIdInput');
+            const existingIdPreview = document.getElementById('editExistingIdPreview');
+            const existingIdImg = document.getElementById('editExistingIdImg');
+
+            let optionExists = false;
+            if (editSelect) {
+                for (let option of editSelect.options) {
+                    if (option.value === idTypeVal) {
+                        optionExists = true;
+                        break;
+                    }
+                }
+
+                if (optionExists) {
+                    editSelect.value = idTypeVal;
+                    customWrapper.style.display = 'none';
+                    customInput.value = '';
+                } else if (idTypeVal !== '' && idTypeVal !== 'N/A') {
+                    editSelect.value = 'Other';
+                    customWrapper.style.display = 'block';
+                    customInput.value = idTypeVal;
+                } else {
+                    editSelect.value = '';
+                    customWrapper.style.display = 'none';
+                    customInput.value = '';
+                }
+            }
+
+            if (this.dataset.idimage && this.dataset.idimage !== '') {
+                existingIdImg.src = this.dataset.idimage;
+                existingIdPreview.style.display = 'block';
+            } else {
+                existingIdPreview.style.display = 'none';
+            }
+
+            toggleIdFields('edit');
+
             const mediaPath = this.dataset.face;
             const imgEl = document.getElementById('editFaceImageDisplay');
             const videoEl = document.getElementById('editFaceVideoDisplay');
@@ -1375,6 +1678,7 @@ async function startAdminCam() {
     const video = document.getElementById('adminWebcam');
     const placeholder = document.getElementById('camPlaceholderText');
     const captureBtn = document.getElementById('captureSnapBtn');
+    const overlay = document.getElementById('faceOverlayAdd');
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         alert("Camera API is not supported by your browser.");
@@ -1391,6 +1695,7 @@ async function startAdminCam() {
         
         placeholder.style.setProperty('display', 'none', 'important');
         video.style.display = 'block';
+        if (overlay) overlay.style.display = 'block';
         captureBtn.disabled = false;
         
         currentPhotosCount = 0;
@@ -1410,6 +1715,7 @@ async function startEditAdminCam() {
     const video = document.getElementById('editAdminWebcam');
     const placeholder = document.getElementById('editCamPlaceholderText');
     const editCaptureBtn = document.getElementById('editCaptureSnapBtn');
+    const overlay = document.getElementById('faceOverlayEdit');
 
     try {
         editLocalStream = await navigator.mediaDevices.getUserMedia({ 
@@ -1421,6 +1727,7 @@ async function startEditAdminCam() {
 
         placeholder.style.setProperty('display', 'none', 'important');
         video.style.display = 'block';
+        if (overlay) overlay.style.display = 'block';
         editCaptureBtn.disabled = false;
         
         editPhotosCount = 0;
@@ -1478,15 +1785,18 @@ function stopAdminCam() {
     }
     const video = document.getElementById('adminWebcam');
     const placeholder = document.getElementById('camPlaceholderText');
+    const overlay = document.getElementById('faceOverlayAdd');
     
     if (video) video.style.display = 'none';
     if (placeholder) placeholder.style.removeProperty('display');
+    if (overlay) overlay.style.display = 'none';
     
     currentPhotosCount = 0;
     document.getElementById('submitFormBtn').disabled = true;
     document.getElementById('captureSuccessStatus').style.display = 'none';
     document.getElementById('captureSnapBtn').disabled = true;
     document.getElementById('addResidentForm').reset();
+    toggleIdFields('add');
 }
 
 function stopEditAdminCam() {
@@ -1496,9 +1806,11 @@ function stopEditAdminCam() {
     }
     const video = document.getElementById('editAdminWebcam');
     const placeholder = document.getElementById('editCamPlaceholderText');
+    const overlay = document.getElementById('faceOverlayEdit');
 
     if (video) video.style.display = 'none';
     if (placeholder) placeholder.style.removeProperty('display');
+    if (overlay) overlay.style.display = 'none';
 
     editPhotosCount = 0;
     document.getElementById('editCaptureSuccessStatus').style.display = 'none';
